@@ -4,7 +4,7 @@ from collections.abc import Collection, Callable, Iterable
 
 from pabutools.utils import Numeric
 
-from pabutools.analysis.cohesiveness import cohesive_groups, is_large_enough
+from pabutools.analysis.cohesiveness import cohesive_groups
 from pabutools.election import (
     Instance,
     AbstractApprovalProfile,
@@ -13,40 +13,7 @@ from pabutools.election import (
     Additive_Cardinal_Sat,
     AbstractCardinalProfile,
     ApprovalBallot,
-    total_cost, AbstractProfile,
 )
-from pabutools.utils import powerset
-
-
-def is_in_core(
-    instance: Instance,
-    profile: AbstractProfile,
-    sat_class: type[SatisfactionMeasure],
-    budget_allocation: Collection[Project],
-    up_to_func: Callable[[Iterable[Numeric]], Numeric] | None = None,
-) -> bool:
-    for group in powerset(profile):
-        if len(group) > 0:
-            for project_set in powerset(instance):
-                if is_large_enough(
-                    len(group),
-                    profile.num_ballots(),
-                    total_cost(project_set),
-                    instance.budget_limit,
-                ):
-                    all_better_alone = True
-                    for ballot in group:
-                        sat = sat_class(instance, profile, ballot)
-                        surplus = 0
-                        if up_to_func is not None:
-                            surplus = up_to_func(sat.sat_project(p) for p in project_set if p not in budget_allocation
-                            )
-                        if sat.sat(budget_allocation) + surplus >= sat.sat(project_set):
-                            all_better_alone = False
-                            break
-                    if all_better_alone:
-                        return False
-    return True
 
 
 def is_strong_EJR_approval(

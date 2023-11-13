@@ -52,6 +52,7 @@ def mean_generator(
 def powerset(iterable: Iterable) -> Generator:
     """
     Returns a generator of all the subsets of a given iterable.
+    Subsets are sorted by subset size and each subset is itself sorted.
 
     Parameters
     ----------
@@ -65,6 +66,26 @@ def powerset(iterable: Iterable) -> Generator:
     """
     s = list(iterable)
     return chain.from_iterable(combinations(s, r) for r in range(len(s) + 1))
+
+
+def powerset_no_empty(iterable: Iterable) -> Generator:
+    """
+    Returns a generator of all the subsets of a given iterable, without the empty subset.
+    Subsets are sorted by subset size and each subset is itself sorted.
+
+    Parameters
+    ----------
+        iterable: Iterable
+            An iterable.
+
+    Returns
+    -------
+        Generator
+            A generator of all the subsets of the iterable.
+    """
+    powerset_ = powerset(iterable)
+    _ = next(powerset_)
+    return powerset_
 
 
 def gini_coefficient(values: Iterable[Numeric]) -> Numeric:

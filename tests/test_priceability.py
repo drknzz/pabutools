@@ -129,9 +129,9 @@ class TestPriceability(TestCase):
         allocation = p[1:6] + p[7:9] + p[10:12]
         self.assertTrue(is_priceable_approval(instance, profile, Cardinality_Sat, allocation))
 
-        # TODO: is it not priceable? what should happen here?
-        # allocation = p[1:6] + p[7:9] + p[11:12]
-        # self.assertFalse(is_priceable_approval(instance, profile, Cardinality_Sat, allocation))
+        # TODO: verify manually that it is for sure not priceable
+        allocation = p[1:6] + p[7:9] + p[11:12]
+        self.assertFalse(is_priceable_approval(instance, profile, Cardinality_Sat, allocation))
 
         # again, apparently all committees of size 9 are priceable
         priceable = priceable_approval(instance, profile, Cardinality_Sat, resoluteness=False, extra_output=True)

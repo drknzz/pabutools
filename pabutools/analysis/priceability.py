@@ -14,7 +14,7 @@ from pabutools.election import (
 )
 from pabutools.utils import Numeric, round_cmp
 
-ROUND_PRECISION = 10
+ROUND_PRECISION = 6
 
 
 def is_priceable_approval(
@@ -59,7 +59,7 @@ def _is_priceable_approval_price_system(
     sat_class: type[SatisfactionMeasure],
     committee: Collection[Project],
     candidate_price: Numeric,
-    payment_functions: Dict[AbstractApprovalBallot, Dict[Project, Numeric]],
+    payment_functions: Dict[AbstractApprovalBallot, Dict[Project, Numeric]], #TODO: change to payments
     *,
     verbose: bool = False
 ) -> bool:
@@ -148,31 +148,36 @@ def priceable_approval(
         for i in N
     }
 
-    # winning committee
+    # winning committee [34]
     x_vars = {
         c: mip_model.add_var(var_type=BINARY, name=f"x_{c}")
         for c in C
     }
-    mip_model += xsum(x_vars[c] for c in C) <= instance.budget_limit
+    # [35]
+    mip_model += xsum(x_vars[c] * c.cost for c in C) <= instance.budget_limit
 
-    # (1) voter can only pay for candidates she approves of
+    # (voter can only pay for candidates she approves of)
     for i in N:
         for c in C:
             if c not in i:
                 mip_model += p_vars[i][c] == 0
 
-    # (2) (a voter can pay only for selected committee members)
+    # (a voter can pay only for selected committee members) [36]
     for i in N:
         for c in C:
             mip_model += 0 <= p_vars[i][c]
             mip_model += p_vars[i][c] <= x_vars[c]
 
-    # (3, 4) (the sum of the payments for elected candidate equals the price, unelected candidates get payment 0)
+    # (a voter will not spend more than its initial budget) [37]
+    for i in N:
+        mip_model += xsum(p_vars[i][c] for c in C) <= 1
+
+    # (the sum of the payments for elected candidate equals the price, unelected candidates get payment 0) [38]
     for c in C:
-        mip_model += p + (x_vars[c] - 1) * len(N) <= xsum(p_vars[i][c] for i in N)  # len(N) -> from (inital money = 1)
+        mip_model += p + (x_vars[c] - 1) * len(N) <= xsum(p_vars[i][c] for i in N)
         mip_model += xsum(p_vars[i][c] for i in N) <= p
 
-    # (5) (unelected candidates' supporters have no more than p unspent budget)
+    # (unelected candidates' supporters have no more than p unspent budget)
     r_vars = {i: mip_model.add_var(name=f"r_{i}") for i in N}
     for i in N:
         mip_model += r_vars[i] == 1 - xsum(p_vars[i][c] for c in C)

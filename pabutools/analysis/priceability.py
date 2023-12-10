@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Collection
-from typing import Callable, List, Tuple, Dict
+from typing import List, Tuple, Dict
 
 from mip import Model, xsum, BINARY, maximize, OptimizationStatus
 
@@ -10,6 +10,7 @@ from pabutools.election import (
     AbstractApprovalProfile,
     Project,
     SatisfactionMeasure,
+    AbstractApprovalBallot,
 )
 from pabutools.utils import Numeric, round_cmp
 
@@ -22,7 +23,7 @@ def is_priceable_approval(
     sat_class: type[SatisfactionMeasure],
     committee: Collection[Project],
     candidate_price: Numeric | None = None,
-    payment_functions: Callable[[Project], Numeric] | None = None,
+    payment_functions: Dict[AbstractApprovalBallot, Dict[Project, Numeric]] | None = None,
     *,
     verbose: bool = False,
 ) -> bool:
@@ -58,7 +59,7 @@ def _is_priceable_approval_price_system(
     sat_class: type[SatisfactionMeasure],
     committee: Collection[Project],
     candidate_price: Numeric,
-    payment_functions: Callable[[Project], Numeric],
+    payment_functions: Dict[AbstractApprovalBallot, Dict[Project, Numeric]],
     *,
     verbose: bool = False
 ) -> bool:
@@ -120,6 +121,7 @@ def _is_priceable_approval_price_system(
 
 Committee = List[Project]
 
+
 def priceable_approval(
     instance: Instance,
     profile: AbstractApprovalProfile,
@@ -139,7 +141,6 @@ def priceable_approval(
     # price
     p = mip_model.add_var(name="price")
     mip_model += p <= len(N)
-    # mip_model += 0 <= p
 
     # payment functions
     p_vars = {

@@ -5,7 +5,8 @@ from unittest import TestCase
 
 from pabutools.analysis.priceability import is_priceable_approval, priceable_approval, \
     _is_priceable_approval_price_system, _is_priceable_approval_search
-from pabutools.election import Project, Instance, FrozenApprovalBallot, Cardinality_Sat, ApprovalProfile
+from pabutools.election import Project, Instance, Cardinality_Sat, ApprovalProfile, ApprovalBallot
+
 # from pabutools.utils import powerset
 
 
@@ -28,13 +29,13 @@ class TestPriceability(TestCase):
         cls.p = p = [Project(str(i), cost=1) for i in range(16)]
         cls.instance = Instance(p[1:], budget_limit=12)
 
-        v1 = FrozenApprovalBallot({p[1], p[2], p[3], p[4]})
-        v2 = FrozenApprovalBallot({p[1], p[2], p[3], p[5]})
-        v3 = FrozenApprovalBallot({p[1], p[2], p[3], p[6]})
-        v4 = FrozenApprovalBallot({p[7], p[8], p[9]})
-        v5 = FrozenApprovalBallot({p[10], p[11], p[12]})
-        v6 = FrozenApprovalBallot({p[13], p[14], p[15]})
-        cls.profile = ApprovalProfile(ballot_type=FrozenApprovalBallot, init=[v1, v2, v3, v4, v5, v6])
+        v1 = ApprovalBallot({p[1], p[2], p[3], p[4]})
+        v2 = ApprovalBallot({p[1], p[2], p[3], p[5]})
+        v3 = ApprovalBallot({p[1], p[2], p[3], p[6]})
+        v4 = ApprovalBallot({p[7], p[8], p[9]})
+        v5 = ApprovalBallot({p[10], p[11], p[12]})
+        v6 = ApprovalBallot({p[13], p[14], p[15]})
+        cls.profile = ApprovalProfile(init=[v1, v2, v3, v4, v5, v6])
 
     def test_is_priceable_approval(self):
         """
@@ -65,16 +66,15 @@ class TestPriceability(TestCase):
         # | v1 | v2 | v3 | v4 | v5 |
 
         # TODO: refactor for better example fixtures
-        # TODO: frozenapprovalballot ?
         p = [Project(str(i), cost=1) for i in range(11)]
         instance = Instance(p[1:], budget_limit=5)
 
-        v1 = FrozenApprovalBallot({p[1], p[6], p[7], p[8], p[9], p[10]})
-        v2 = FrozenApprovalBallot({p[2], p[6], p[7], p[8], p[9], p[10]})
-        v3 = FrozenApprovalBallot({p[3], p[6], p[7], p[8], p[9], p[10]})
-        v4 = FrozenApprovalBallot({p[4], p[6], p[7], p[8], p[9], p[10]})
-        v5 = FrozenApprovalBallot({p[5], p[6], p[7], p[8], p[9], p[10]})
-        profile = ApprovalProfile(ballot_type=FrozenApprovalBallot, init=[v1, v2, v3, v4, v5])
+        v1 = ApprovalBallot({p[1], p[6], p[7], p[8], p[9], p[10]})
+        v2 = ApprovalBallot({p[2], p[6], p[7], p[8], p[9], p[10]})
+        v3 = ApprovalBallot({p[3], p[6], p[7], p[8], p[9], p[10]})
+        v4 = ApprovalBallot({p[4], p[6], p[7], p[8], p[9], p[10]})
+        v5 = ApprovalBallot({p[5], p[6], p[7], p[8], p[9], p[10]})
+        profile = ApprovalProfile(init=[v1, v2, v3, v4, v5])
 
         allocation = p[1:6]
         self.assertTrue(is_priceable_approval(instance, profile, Cardinality_Sat, allocation))
@@ -106,22 +106,21 @@ class TestPriceability(TestCase):
         # | v1 | v2 | v3 | v4 | v5 | v6 | v7 | v8 | v9 |
 
         # TODO: refactor for better example fixtures
-        # TODO: frozenapprovalballot ?
         p = [Project(str(i), cost=1) for i in range(13)]
         instance = Instance(p[1:], budget_limit=9)
 
-        v1 = FrozenApprovalBallot({p[1], p[2], p[3], p[4], p[5], p[6]})
-        v2 = FrozenApprovalBallot({p[1], p[2], p[3], p[4], p[5], p[6]})
-        v3 = FrozenApprovalBallot({p[1], p[2], p[3], p[4], p[5], p[6]})
+        v1 = ApprovalBallot({p[1], p[2], p[3], p[4], p[5], p[6]})
+        v2 = ApprovalBallot({p[1], p[2], p[3], p[4], p[5], p[6]})
+        v3 = ApprovalBallot({p[1], p[2], p[3], p[4], p[5], p[6]})
 
-        v4 = FrozenApprovalBallot({p[1], p[2], p[3], p[7], p[8], p[9]})
-        v5 = FrozenApprovalBallot({p[1], p[2], p[3], p[7], p[8], p[9]})
-        v6 = FrozenApprovalBallot({p[1], p[2], p[3], p[7], p[8], p[9]})
+        v4 = ApprovalBallot({p[1], p[2], p[3], p[7], p[8], p[9]})
+        v5 = ApprovalBallot({p[1], p[2], p[3], p[7], p[8], p[9]})
+        v6 = ApprovalBallot({p[1], p[2], p[3], p[7], p[8], p[9]})
 
-        v7 = FrozenApprovalBallot({p[1], p[2], p[3], p[10], p[11], p[12]})
-        v8 = FrozenApprovalBallot({p[1], p[2], p[3], p[10], p[11], p[12]})
-        v9 = FrozenApprovalBallot({p[1], p[2], p[3], p[10], p[11], p[12]})
-        profile = ApprovalProfile(ballot_type=FrozenApprovalBallot, init=[v1, v2, v3, v4, v5, v6, v7, v8, v9])
+        v7 = ApprovalBallot({p[1], p[2], p[3], p[10], p[11], p[12]})
+        v8 = ApprovalBallot({p[1], p[2], p[3], p[10], p[11], p[12]})
+        v9 = ApprovalBallot({p[1], p[2], p[3], p[10], p[11], p[12]})
+        profile = ApprovalProfile(init=[v1, v2, v3, v4, v5, v6, v7, v8, v9])
 
         allocation = p[1:10]
         self.assertTrue(is_priceable_approval(instance, profile, Cardinality_Sat, allocation))

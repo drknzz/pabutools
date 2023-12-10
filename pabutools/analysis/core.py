@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Collection, Callable, Iterable
+from collections.abc import Collection, Callable, Iterable, Generator
 from typing import List
 
 from pabutools.utils import powerset_no_empty, Numeric
@@ -8,17 +8,17 @@ from pabutools.utils import powerset_no_empty, Numeric
 from pabutools.analysis.cohesiveness import is_large_enough
 from pabutools.election import (
     Instance,
-    AbstractApprovalProfile,
     Project,
     SatisfactionMeasure,
     total_cost,
+    AbstractProfile,
 )
 from pabutools.utils import powerset
 
 
-def is_in_core_approval(
+def is_in_core(
     instance: Instance,
-    profile: AbstractApprovalProfile,
+    profile: AbstractProfile,
     sat_class: type[SatisfactionMeasure],
     budget_allocation: Collection[Project],
     up_to_func: Callable[[Iterable[Numeric]], Numeric] | None = None,
@@ -40,17 +40,15 @@ def is_in_core_approval(
     return True
 
 
-def core_approval(
+def core(
     instance: Instance,
-    profile: AbstractApprovalProfile,
+    profile: AbstractProfile,
     sat_class: type[SatisfactionMeasure],
     up_to_func: Callable[[Iterable[Numeric]], Numeric] | None = None,
-) -> List[List[Project]]:
-    core = []
+) -> Generator[List[Project]]:
     for proj_set in powerset(instance):
         if total_cost(proj_set) > instance.budget_limit:
             continue
 
-        if is_in_core_approval(instance, profile, sat_class, proj_set, up_to_func):
-            core.append(proj_set)
-    return core
+        if is_in_core(instance, profile, sat_class, proj_set, up_to_func):
+            yield proj_set

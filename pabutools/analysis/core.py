@@ -12,7 +12,6 @@ from pabutools.election import (
     Project,
     SatisfactionMeasure,
     total_cost,
-    AbstractBallot,
 )
 from pabutools.utils import powerset
 
@@ -25,29 +24,20 @@ def is_in_core_approval(
     up_to_func: Callable[[Iterable[Numeric]], Numeric] | None = None,
 ) -> bool:
     for group in powerset_no_empty(profile):
-        for proj_set in powerset(instance):
-            if not is_large_enough(len(group), profile.num_ballots(), total_cost(proj_set), instance.budget_limit):
+        for project_set in powerset(instance):
+            if not is_large_enough(len(group), profile.num_ballots(), total_cost(project_set), instance.budget_limit):
                 continue
 
-            if all(_prefers_a_to_b(proj_set, budget_allocation, ballot, instance, profile, sat_class, up_to_func) for ballot in group):
+            for ballot in group:
+                sat = sat_class(instance, profile, ballot)
+                surplus = 0
+                if up_to_func is not None:
+                    surplus = up_to_func(sat.sat_project(p) for p in project_set if p not in budget_allocation)
+                if sat.sat(budget_allocation) + surplus >= sat.sat(project_set):
+                    break
+            else:
                 return False
     return True
-
-
-def _prefers_a_to_b(
-    a: Collection[Project],
-    b: Collection[Project],
-    ballot: AbstractBallot,
-    instance: Instance,
-    profile: AbstractApprovalProfile,
-    sat_class: type[SatisfactionMeasure],
-    up_to_func: Callable[[Iterable[Numeric]], Numeric] | None = None,
-) -> bool:
-    sat = sat_class(instance, profile, ballot)
-    surplus = 0
-    if up_to_func is not None:
-        surplus = up_to_func(sat.sat_project(p) for p in b if p not in a)
-    return sat.sat(a) + surplus > sat.sat(b)
 
 
 def core_approval(

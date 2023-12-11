@@ -29,10 +29,10 @@ def is_priceable(
 ) -> bool:
     """Checks whether a committee is priceable"""
     if candidate_price is None or payment_functions is None:
-        status, candidate_price, payment_functions = find_price_system(instance, profile, committee, candidate_price, payment_functions, stable, verbose=verbose)
+        status, candidate_price, payment_functions = find_price_system(instance, profile, committee, candidate_price, payment_functions, stable=stable, verbose=verbose)
         return status == OptimizationStatus.OPTIMAL
 
-    return validate_price_system(instance, profile, committee, candidate_price, payment_functions, stable, verbose=verbose)
+    return validate_price_system(instance, profile, committee, candidate_price, payment_functions, stable=stable, verbose=verbose)
 
 
 def validate_price_system(
@@ -176,12 +176,13 @@ def priceable(
 
         # stability constraint [41]
         for c in C:
-            mip_model += xsum(m_vars[i_idx] for i_idx, i in enumerate(N)) <= p + x_vars[c] * len(N)
+            mip_model += xsum(m_vars[i_idx] for i_idx, i in enumerate(N) if c in i) <= p + x_vars[c] * len(N)
 
 
     # mip_model.objective = maximize(xsum(x_vars[c] * c.cost for c in C))
     # mip_model.objective = maximize(xsum(x_vars[c] for c in C))
     mip_model.objective = minimize(p)   # change down below as well
+    # mip_model.emphasis = 2
     status = mip_model.optimize()
 
     # TODO: handle status other than OPTIMAL; potential lack of solutions
@@ -274,12 +275,9 @@ def find_price_system(
 
     # winning committee [34]
     x_vars = {
-        c: mip_model.add_var(var_type=BINARY, name=f"x_{c}")
+        c: int(c in committee)
         for c in C
     }
-    if committee is not None:
-        for c in C:
-            mip_model += x_vars[c] == int(c in committee)
 
     # (voter can only pay for candidates she approves of)
     for i_idx, i in enumerate(N):
@@ -317,14 +315,15 @@ def find_price_system(
         m_vars = [mip_model.add_var(name=f"m_{i}") for i in N]
         for i_idx, i in enumerate(N):
             for c in C:
-                mip_model += m_vars[i_idx] >= p_vars[i_idx][c]
+                if c in committee:
+                    mip_model += m_vars[i_idx] >= p_vars[i_idx][c]
 
-            mip_model += m_vars[i_idx] >= 1 - xsum(p_vars[i_idx][c] for c in C)
+            mip_model += m_vars[i_idx] >= (1 - xsum(p_vars[i_idx][c] for c in C))
 
         # stability constraint [41]
         for c in C:
-            mip_model += xsum(m_vars[i_idx] for i_idx, i in enumerate(N)) <= p + x_vars[c] * len(N)
-
+            if c not in committee:
+                mip_model += xsum(m_vars[i_idx] for i_idx, i in enumerate(N) if c in i) <= p + x_vars[c] * len(N)
 
     # mip_model.objective = maximize(xsum(x_vars[c] * c.cost for c in C))
     # mip_model.objective = maximize(xsum(x_vars[c] for c in C))
@@ -333,7 +332,7 @@ def find_price_system(
     status = mip_model.optimize()
 
     # TODO: handle status other than OPTIMAL; potential lack of solutions
-    print(f"STATUS: {status} | OPT_VAL: {mip_model.objective_value}")
+    # print(f"STATUS: {status} | OPT_VAL: {mip_model.objective_value}")
     if status == OptimizationStatus.OPTIMAL:
         print(f"p: {p.x}")
         print("payments:")

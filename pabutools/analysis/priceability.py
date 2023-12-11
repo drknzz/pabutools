@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Collection
+from collections.abc import Collection, Set
 from typing import List, Tuple, Dict
 
 import mip
@@ -10,18 +10,16 @@ from pabutools.election import (
     Instance,
     AbstractApprovalProfile,
     Project,
-    SatisfactionMeasure,
-    AbstractApprovalBallot,
+    total_cost,
 )
 from pabutools.utils import Numeric, round_cmp
 
 ROUND_PRECISION = 6
 
 
-def is_priceable_approval(
+def is_priceable(
     instance: Instance,
     profile: AbstractApprovalProfile,
-    sat_class: type[SatisfactionMeasure],
     committee: Collection[Project],
     candidate_price: Numeric | None = None,
     payment_functions: [Dict[Project, Numeric]] | None = None,
@@ -30,39 +28,19 @@ def is_priceable_approval(
     verbose: bool = False,
 ) -> bool:
     """Checks whether a committee is priceable"""
-    # TODO: sat_class
     if candidate_price is None or payment_functions is None:
-        if verbose:
-            print("candidate_price or payment_functions are None - checking priceability via search")
-        return _is_priceable_approval_search(instance, profile, sat_class, committee, stable)
+        status, candidate_price, payment_functions = find_price_system(instance, profile, committee, candidate_price, payment_functions, stable, verbose=verbose)
+        return status == OptimizationStatus.OPTIMAL
 
-    return _is_priceable_approval_price_system(instance, profile, sat_class, committee, candidate_price, payment_functions, stable, verbose=verbose)
+    return validate_price_system(instance, profile, committee, candidate_price, payment_functions, stable, verbose=verbose)
 
 
-def _is_priceable_approval_search(
+def validate_price_system(
     instance: Instance,
     profile: AbstractApprovalProfile,
-    sat_class: type[SatisfactionMeasure],
-    committee: Collection[Project],
-    stable: bool = False,
-) -> bool:
-    """Check whether a committee is priceable by matching it with one of generated priceable committees"""
-    priceable_committees = priceable_approval(instance, profile, sat_class, stable, resoluteness=False)
-    committee = sorted(list(committee))
-    # TODO: consider converting priceable_committees to be a generator; potential speed up
-    for priceable_committee in priceable_committees:
-        if committee == priceable_committee:
-            return True
-    return False
-
-
-def _is_priceable_approval_price_system(
-    instance: Instance,
-    profile: AbstractApprovalProfile,
-    sat_class: type[SatisfactionMeasure],
     committee: Collection[Project],
     candidate_price: Numeric,
-    payment_functions: [Dict[Project, Numeric]], #TODO: change to payments
+    payment_functions: [Dict[Project, Numeric]],
     stable: bool = False,
     *,
     verbose: bool = False
@@ -77,7 +55,6 @@ def _is_priceable_approval_price_system(
     for i_idx, i in enumerate(N):
         for c in C:
             if c not in i and pf[i_idx][c] > 0:
-                # TODO: add logger instead?
                 if verbose:
                     print(f"(1) not fulfilled: voter {i_idx} paid {pf[i_idx][c]} for unapproved candidate {c}")
                 return False
@@ -85,16 +62,13 @@ def _is_priceable_approval_price_system(
     for i_idx, i in enumerate(N):
         s = sum(pf[i_idx][c] for c in C)
         if s > 1:
-            # TODO: add logger instead?
             if verbose:
                 print(f"(2) not fulfilled: payments of voter {i_idx} are equal {s}")
             return False
 
     for c in W:
         s = sum(pf[i_idx][c] for i_idx, i in enumerate(N))
-        # if round(s, ROUND_PRECISION-2) != round(p, ROUND_PRECISION-2):
         if round_cmp(s, p, ROUND_PRECISION-2) != 0:
-            # TODO: add logger instead?
             if verbose:
                 print(f"(3) not fulfilled: payments for elected candidate {c} are equal {s}")
             return False
@@ -102,33 +76,23 @@ def _is_priceable_approval_price_system(
     for c in C:
         if c not in W:
             if (s := sum(pf[i_idx][c] for i_idx, i in enumerate(N))) > 0:
-                # TODO: add logger instead?
                 if verbose:
                     print(f"(4) not fulfilled: payments for unelected candidate {c} are equal {s}")
                 return False
 
     if not stable:
-        print("A")
         for c in C:
             if c not in W:
-                # s1 = sum(pf[i][c_] for c_ in W)
                 s = sum(1 - sum(pf[i_idx][c_] for c_ in W) for i_idx, i in enumerate(N) if c in i)
-                # TODO: double round (per sum)?
-                # TODO: fraction problem
-                # if round(s, ROUND_PRECISION-2) > round(p, ROUND_PRECISION-2):
                 if round_cmp(s, p, ROUND_PRECISION-2) > 0:
-                    # TODO: add logger instead?
                     if verbose:
                         print(f"(5) not fulfilled: voters' leftover money for unelected candidate {c} are equal {s}")
                     return False
-
     else:
-        print("B")
         for c in C:
             if c not in W:
                 s = sum(max(max((pf[i_idx][c_] for c_ in W), default=0), 1 - sum(pf[i_idx][c_] for c_ in W)) for i_idx, i in enumerate(N) if c in i)
                 if round_cmp(s, p, ROUND_PRECISION-2) > 0:
-                    # TODO: add logger instead?
                     if verbose:
                         print(f"(5) not fulfilled: voters' leftover money (or the most they've spent for a candidate) for unelected candidate {c} are equal {s}")
                     return False
@@ -139,10 +103,9 @@ def _is_priceable_approval_price_system(
 Committee = List[Project]
 
 
-def priceable_approval(
+def priceable(
     instance: Instance,
     profile: AbstractApprovalProfile,
-    sat_class: type[SatisfactionMeasure],
     stable: bool = False,
     *,
     resoluteness: bool = True,
@@ -153,7 +116,7 @@ def priceable_approval(
     C = instance
     N = profile
 
-    mip_model = Model("priceability")
+    mip_model = Model("stable-priceability" if stable else "priceability")
     mip_model.verbose = 0
 
     # price
@@ -216,16 +179,15 @@ def priceable_approval(
             mip_model += xsum(m_vars[i_idx] for i_idx, i in enumerate(N)) <= p + x_vars[c] * len(N)
 
 
-    # mip_model.objective = maximize(xsum(x_vars[c] * c.cost for c in C))             # TODO: what should be the objective?
+    # mip_model.objective = maximize(xsum(x_vars[c] * c.cost for c in C))
     # mip_model.objective = maximize(xsum(x_vars[c] for c in C))
     mip_model.objective = minimize(p)   # change down below as well
-    # mip_model.max_seconds = 10
     status = mip_model.optimize()
 
     # TODO: handle status other than OPTIMAL; potential lack of solutions
     committee = sorted([c for c in C if x_vars[c].x >= 0.99])
 
-    print(f"STATUS: {status} | OPT_VAL: {mip_model.objective_value}")
+    print(f"xxxSTATUS: {status} | OPT_VAL: {mip_model.objective_value}")
 
     if resoluteness:
         if extra_output:
@@ -273,3 +235,115 @@ def priceable_approval(
             for partial_alloc, (price, payment_functions) in zip(all_partial_allocs, extra_output_data)
         ]
     return all_partial_allocs
+
+
+def find_price_system(
+    instance: Instance,
+    profile: AbstractApprovalProfile,
+    committee: Set[Project],
+    candidate_price: Numeric | None = None,
+    payment_functions: [Dict[Project, Numeric]] | None = None,
+    stable: bool = False,
+    *,
+    verbose: bool = False,
+) -> bool:
+    # TODO: handle return None (no priceable committee)
+    C = instance
+    N = profile
+
+    if (t := total_cost(committee)) > instance.budget_limit:
+        if verbose:
+            print(f"Total cost {t} of {committee} exceeded budget limit {instance.budget_limit}")
+        return False
+
+    mip_model = Model("stable-priceability" if stable else "priceability")
+    mip_model.verbose = 0
+
+    # price
+    p = mip_model.add_var(name="price")
+    mip_model += p <= len(N)
+    if candidate_price is not None:
+        mip_model += p == candidate_price
+
+    # payment functions
+    p_vars = [{c: mip_model.add_var(name=f"p_{i.name}_{c}") for c in C} for i in N]
+    if payment_functions is not None:
+        for i_idx, i in enumerate(N):
+            for c in C:
+                mip_model += p_vars[i_idx][c] == payment_functions[i_idx][c]
+
+    # winning committee [34]
+    x_vars = {
+        c: mip_model.add_var(var_type=BINARY, name=f"x_{c}")
+        for c in C
+    }
+    if committee is not None:
+        for c in C:
+            mip_model += x_vars[c] == int(c in committee)
+
+    # (voter can only pay for candidates she approves of)
+    for i_idx, i in enumerate(N):
+        for c in C:
+            if c not in i:
+                mip_model += p_vars[i_idx][c] == 0
+
+    # (a voter can pay only for selected committee members) [36]
+    for i_idx, i in enumerate(N):
+        for c in C:
+            mip_model += 0 <= p_vars[i_idx][c]
+            mip_model += p_vars[i_idx][c] <= x_vars[c]
+
+    # (a voter will not spend more than its initial budget) [37]
+    for i_idx, i in enumerate(N):
+        mip_model += xsum(p_vars[i_idx][c] for c in C) <= 1
+
+    # (the sum of the payments for elected candidate equals the price, unelected candidates get payment 0) [38]
+    for c in C:
+        mip_model += p + (x_vars[c] - 1) * len(N) <= xsum(p_vars[i_idx][c] for i_idx, i in enumerate(N))
+        mip_model += xsum(p_vars[i_idx][c] for i_idx, i in enumerate(N)) <= p
+
+
+    if not stable:
+        # (unelected candidates' supporters have no more than p unspent budget)
+        r_vars = [mip_model.add_var(name=f"r_{i}") for i in N]
+        for i_idx, i in enumerate(N):
+            mip_model += r_vars[i_idx] == 1 - xsum(p_vars[i_idx][c] for c in C)
+
+        for c in C:
+            mip_model += xsum(r_vars[i_idx] for i_idx, i in enumerate(N) if c in i) <= p
+
+    else:
+        # [39] [40]
+        m_vars = [mip_model.add_var(name=f"m_{i}") for i in N]
+        for i_idx, i in enumerate(N):
+            for c in C:
+                mip_model += m_vars[i_idx] >= p_vars[i_idx][c]
+
+            mip_model += m_vars[i_idx] >= 1 - xsum(p_vars[i_idx][c] for c in C)
+
+        # stability constraint [41]
+        for c in C:
+            mip_model += xsum(m_vars[i_idx] for i_idx, i in enumerate(N)) <= p + x_vars[c] * len(N)
+
+
+    # mip_model.objective = maximize(xsum(x_vars[c] * c.cost for c in C))
+    # mip_model.objective = maximize(xsum(x_vars[c] for c in C))
+    mip_model.objective = minimize(p)   # change down below as well
+    # mip_model.max_seconds = 10
+    status = mip_model.optimize()
+
+    # TODO: handle status other than OPTIMAL; potential lack of solutions
+    print(f"STATUS: {status} | OPT_VAL: {mip_model.objective_value}")
+    if status == OptimizationStatus.OPTIMAL:
+        print(f"p: {p.x}")
+        print("payments:")
+        for idx, i in enumerate([{c: round(p_vars[i_idx][c].x, ROUND_PRECISION) for c in C} for i_idx, i in enumerate(N)]):
+            d = {y: z for y, z in i.items() if z > 0}
+            print(f"{idx}: {d}")
+        return (
+            status,
+            round(p.x, ROUND_PRECISION),
+            [{c: round(p_vars[i_idx][c].x, ROUND_PRECISION) for c in C} for i_idx, i in enumerate(N)]
+        )
+
+    return (status, None, None)

@@ -42,10 +42,10 @@ class TestPriceability(TestCase):
         Test checking whether a committee is priceable for approval profile.
         """
         allocation = self.p[1:4] + self.p[7:]
-        self.assertFalse(is_priceable_approval(self.instance, self.profile, Cardinality_Sat, allocation))
+        self.assertFalse(is_priceable_approval(self.instance, self.profile, Cardinality_Sat, allocation, stable=True))
 
         allocation = self.p[1:9] + self.p[10:12] + self.p[13:15]
-        self.assertTrue(is_priceable_approval(self.instance, self.profile, Cardinality_Sat, allocation))
+        self.assertTrue(is_priceable_approval(self.instance, self.profile, Cardinality_Sat, allocation, stable=True))
 
     def test_is_priceable_approval_extended(self):
         # Example from https://arxiv.org/pdf/1911.11747.pdf page 15 (k = 5)
@@ -77,15 +77,15 @@ class TestPriceability(TestCase):
         profile = ApprovalProfile(init=[v1, v2, v3, v4, v5])
 
         allocation = p[1:6]
-        self.assertTrue(is_priceable_approval(instance, profile, Cardinality_Sat, allocation))
+        self.assertTrue(is_priceable_approval(instance, profile, Cardinality_Sat, allocation, stable=True))
 
         allocation = p[6:]
-        self.assertTrue(is_priceable_approval(instance, profile, Cardinality_Sat, allocation))
+        self.assertTrue(is_priceable_approval(instance, profile, Cardinality_Sat, allocation, stable=True))
 
         # apparently all committees of size 5 are priceable
-        priceable = priceable_approval(instance, profile, Cardinality_Sat, resoluteness=False, extra_output=True)
+        priceable = priceable_approval(instance, profile, Cardinality_Sat, stable=True, resoluteness=False, extra_output=True)
         for committee, p, pf in priceable:
-            self.assertTrue(is_priceable_approval(instance, profile, Cardinality_Sat, committee, p, pf))
+            self.assertTrue(is_priceable_approval(instance, profile, Cardinality_Sat, committee, p, pf, stable=True))
 
     def test_is_priceable_approval_extended2(self):
         # Example from http://www.cs.utoronto.ca/~nisarg/papers/priceability.pdf page 13
@@ -123,25 +123,25 @@ class TestPriceability(TestCase):
         profile = ApprovalProfile(init=[v1, v2, v3, v4, v5, v6, v7, v8, v9])
 
         allocation = p[1:10]
-        self.assertTrue(is_priceable_approval(instance, profile, Cardinality_Sat, allocation))
+        self.assertTrue(is_priceable_approval(instance, profile, Cardinality_Sat, allocation, stable=True))
 
         allocation = p[1:6] + p[7:9] + p[10:12]
-        self.assertTrue(is_priceable_approval(instance, profile, Cardinality_Sat, allocation))
+        self.assertTrue(is_priceable_approval(instance, profile, Cardinality_Sat, allocation, stable=True))
 
         # TODO: verify manually that it is for sure not priceable
         allocation = p[1:6] + p[7:9] + p[11:12]
-        self.assertFalse(is_priceable_approval(instance, profile, Cardinality_Sat, allocation))
+        self.assertFalse(is_priceable_approval(instance, profile, Cardinality_Sat, allocation, stable=True))
 
         # again, apparently all committees of size 9 are priceable
-        priceable = priceable_approval(instance, profile, Cardinality_Sat, resoluteness=False, extra_output=True)
+        priceable = priceable_approval(instance, profile, Cardinality_Sat, stable=True, resoluteness=False, extra_output=True)
         for committee, p, pf in priceable:
-            self.assertTrue(is_priceable_approval(instance, profile, Cardinality_Sat, committee, p, pf))
+            self.assertTrue(is_priceable_approval(instance, profile, Cardinality_Sat, committee, p, pf, stable=True))
 
     def test_priceable_approval(self):
         """
         Test finding core for approval profile.
         """
-        priceable, p, pf = priceable_approval(self.instance, self.profile, sat_class=None, extra_output=True)  # TODO: sat class
+        priceable, p, pf = priceable_approval(self.instance, self.profile, sat_class=None, stable=True, extra_output=True)  # TODO: sat class
         self.assertTrue(
             _is_priceable_approval_price_system(
                 self.instance,
@@ -149,21 +149,23 @@ class TestPriceability(TestCase):
                 sat_class=None,
                 committee=priceable,
                 candidate_price=p,
-                payment_functions=pf
+                payment_functions=pf,
+                stable=True
             )
         )
 
-        priceable = priceable_approval(self.instance, self.profile, sat_class=None)  # TODO: sat class
+        priceable = priceable_approval(self.instance, self.profile, sat_class=None, stable=True)  # TODO: sat class
         self.assertTrue(
             _is_priceable_approval_search(
                 self.instance,
                 self.profile,
                 sat_class=None,
                 committee=priceable,
+                stable=True
             )
         )
 
-        priceable_committees = priceable_approval(self.instance, self.profile, sat_class=None, resoluteness=False, extra_output=True)
+        priceable_committees = priceable_approval(self.instance, self.profile, sat_class=None, stable=True, resoluteness=False, extra_output=True)
         for priceable, p, pf in priceable_committees:
             print(priceable)
             print(p)
@@ -177,7 +179,8 @@ class TestPriceability(TestCase):
                     sat_class=None,
                     committee=priceable,
                     candidate_price=p,
-                    payment_functions=pf
+                    payment_functions=pf,
+                    stable=True
                 )
             )
 

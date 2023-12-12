@@ -79,12 +79,11 @@ class TestPriceability(TestCase):
         allocation = p[6:]
         self.assertTrue(is_priceable(instance, profile, allocation))
 
-        # apparently all committees of size 5 are priceable
         priceable_allocations = priceable(instance, profile, resoluteness=False, extra_output=True)
         for committee, p, pf in priceable_allocations:
             self.assertTrue(is_priceable(instance, profile, committee, p, pf))
 
-        self.assertEqual(len(priceable_allocations), math.comb(10, 5))
+        self.assertEqual(len(priceable_allocations), 1)
 
     def test_is_priceable_approval_extended2(self):
         # Example from http://www.cs.utoronto.ca/~nisarg/papers/priceability.pdf page 13
@@ -129,12 +128,12 @@ class TestPriceability(TestCase):
         allocation = p[1:6] + p[7:9] + p[11:12]
         self.assertTrue(is_priceable(instance, profile, allocation))
 
-        # again, apparently all committees of size 9 are priceable
         priceable_allocations = priceable(instance, profile, resoluteness=False, extra_output=True)
         for committee, p, pf in priceable_allocations:
             self.assertTrue(is_priceable(instance, profile, committee, p, pf))
 
-        self.assertEqual(len(priceable_allocations), math.comb(12, 9))
+        # choose c1, c2, c3 and 6 from the rest
+        self.assertEqual(len(priceable_allocations), math.comb(9, 6))
 
     def test_priceable_approval(self):
         """

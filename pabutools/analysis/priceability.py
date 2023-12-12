@@ -92,7 +92,7 @@ def validate_price_system(
         for c in C:
             if c not in W:
                 s = sum(max(max((pf[i_idx][c_] for c_ in W), default=0), 1 - sum(pf[i_idx][c_] for c_ in W)) for i_idx, i in enumerate(N) if c in i)
-                if round_cmp(s, p, ROUND_PRECISION-2) > 0:
+                if round_cmp(s, p, ROUND_PRECISION-3) > 0:
                     if verbose:
                         print(f"(5) not fulfilled: voters' leftover money (or the most they've spent for a candidate) for unelected candidate {c} are equal {s}")
                     return False
@@ -163,7 +163,7 @@ def priceable(
             mip_model += r_vars[i_idx] == 1 - xsum(p_vars[i_idx][c] for c in C)
 
         for c in C:
-            mip_model += xsum(r_vars[i_idx] for i_idx, i in enumerate(N) if c in i) <= p
+            mip_model += xsum(r_vars[i_idx] for i_idx, i in enumerate(N) if c in i) <= p + x_vars[c] * len(N)
 
     else:
         # [39] [40]
@@ -308,7 +308,8 @@ def find_price_system(
             mip_model += r_vars[i_idx] == 1 - xsum(p_vars[i_idx][c] for c in C)
 
         for c in C:
-            mip_model += xsum(r_vars[i_idx] for i_idx, i in enumerate(N) if c in i) <= p
+            if c not in committee:
+                mip_model += xsum(r_vars[i_idx] for i_idx, i in enumerate(N) if c in i) <= p + x_vars[c] * len(N)
 
     else:
         # [39] [40]

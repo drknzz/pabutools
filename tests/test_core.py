@@ -37,7 +37,7 @@ class TestCore(TestCase):
 
     def test_is_in_core_approval(self):
         """
-        Test checking whether a committee is in core for approval profile.
+        Test checking whether a budget_allocation is in core for approval profile.
         """
         allocation = self.p[1:4] + self.p[7:]
         self.assertFalse(is_in_core(self.instance, self.profile, Cardinality_Sat, allocation))
@@ -70,8 +70,8 @@ class TestCore(TestCase):
         profile = ApprovalProfile(init=[v1, v2, v3, v4])
 
         core_size = 0
-        for committee in core(instance, profile, Cardinality_Sat):
+        for budget_allocation in core(instance, profile, Cardinality_Sat):
             core_size += 1
-            self.assertTrue(is_in_core(instance, profile, Cardinality_Sat, committee))
+            self.assertTrue(is_in_core(instance, profile, Cardinality_Sat, budget_allocation))
 
         self.assertEqual(core_size, 39)

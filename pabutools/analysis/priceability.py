@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from collections.abc import Collection, Set
+from collections.abc import Collection
 from typing import List, Tuple, Dict
 
-from mip import Model, xsum, BINARY, maximize, OptimizationStatus, minimize
+from mip import Model, xsum, BINARY, maximize, OptimizationStatus
 
 from pabutools.election import (
     Instance,
@@ -21,14 +21,16 @@ def is_priceable(
     profile: AbstractApprovalProfile,
     budget_allocation: Collection[Project],
     voter_budget: Numeric | None = None,
-    payment_functions: [Dict[Project, Numeric]] | None = None,
+    payment_functions: List[Dict[Project, Numeric]] | None = None,
     stable: bool = False,
     *,
     verbose: bool = False,
 ) -> bool:
-    """Checks whether a budget_allocation is priceable"""
+    """Checks whether a budget allocation is priceable"""
     if voter_budget is None or payment_functions is None:
-        status, voter_budget, payment_functions = find_price_system(instance, profile, budget_allocation, voter_budget, payment_functions, stable=stable, verbose=verbose)
+        status, voter_budget, payment_functions = find_price_system(instance, profile, budget_allocation, voter_budget, payment_functions, stable=stable)
+        if status == OptimizationStatus.OPTIMAL and verbose:
+            print(f"--- Voter budget: {voter_budget}")
         return status == OptimizationStatus.OPTIMAL
 
     return validate_price_system(instance, profile, budget_allocation, voter_budget, payment_functions, stable=stable, verbose=verbose)
@@ -44,61 +46,61 @@ def validate_price_system(
     *,
     verbose: bool = False
 ) -> bool:
-    """Given a price system, verifies whether a budget_allocation is priceable"""
+    """Given a price system, verifies whether budget_allocation is priceable"""
     C = instance
     N = profile
     W = budget_allocation
     b = voter_budget
     pf = payment_functions
 
-    if (t := total_cost(budget_allocation)) > instance.budget_limit:
+    if (t := total_cost(W)) > instance.budget_limit:
         if verbose:
             print(f"(0) not fulfilled: total price for allocation is equal {t} > {instance.budget_limit}")
         return False
 
-    for i_idx, i in enumerate(N):
+    for idx, i in enumerate(N):
         for c in C:
-            if c not in i and pf[i_idx][c] > 0:
+            if c not in i and pf[idx][c] > 0:
                 if verbose:
-                    print(f"(1) not fulfilled: voter {i_idx} paid {pf[i_idx][c]} for unapproved candidate {c}")
+                    print(f"(1) not fulfilled: voter {idx} paid {pf[idx][c]} for unapproved project {c}")
                 return False
 
-    for i_idx, i in enumerate(N):
-        s = sum(pf[i_idx][c] for c in C)
+    for idx, _ in enumerate(N):
+        s = sum(pf[idx][c] for c in C)
         if round_cmp(s, b, ROUND_PRECISION-2) > 0:
             if verbose:
-                print(f"(2) not fulfilled: payments of voter {i_idx} are equal {s} > {b}")
+                print(f"(2) not fulfilled: payments of voter {idx} are equal {s} > {b}")
             return False
 
     for c in W:
-        s = sum(pf[i_idx][c] for i_idx, i in enumerate(N))
+        s = sum(pf[idx][c] for idx, _ in enumerate(N))
         if round_cmp(s, c.cost, ROUND_PRECISION-2) != 0:
             if verbose:
-                print(f"(3) not fulfilled: payments for elected candidate {c} are equal {s} != {c.cost}")
+                print(f"(3) not fulfilled: payments for selected project {c} are equal {s} != {c.cost}")
             return False
 
     for c in C:
         if c not in W:
-            if (s := sum(pf[i_idx][c] for i_idx, i in enumerate(N))) > 0:
+            if (s := sum(pf[idx][c] for idx, _ in enumerate(N))) > 0:
                 if verbose:
-                    print(f"(4) not fulfilled: payments for unelected candidate {c} are equal {s}")
+                    print(f"(4) not fulfilled: payments for not selected project {c} are equal {s}")
                 return False
 
     if not stable:
         for c in C:
             if c not in W:
-                s = sum(b - sum(pf[i_idx][c_] for c_ in W) for i_idx, i in enumerate(N) if c in i)
+                s = sum(b - sum(pf[idx][c_] for c_ in W) for idx, i in enumerate(N) if c in i)
                 if round_cmp(s, c.cost, ROUND_PRECISION-2) > 0:
                     if verbose:
-                        print(f"(5) not fulfilled: voters' leftover money for unelected candidate {c} are equal {s} > {c.cost}")
+                        print(f"(5) not fulfilled: voters' leftover money for not selected project {c} are equal {s} > {c.cost}")
                     return False
     else:
         for c in C:
             if c not in W:
-                s = sum(max(max((pf[i_idx][c_] for c_ in W), default=0), b - sum(pf[i_idx][c_] for c_ in W)) for i_idx, i in enumerate(N) if c in i)
+                s = sum(max(max((pf[idx][c_] for c_ in W), default=0), b - sum(pf[idx][c_] for c_ in W)) for idx, i in enumerate(N) if c in i)
                 if round_cmp(s, c.cost, ROUND_PRECISION-3) > 0:
                     if verbose:
-                        print(f"(5) not fulfilled: voters' leftover money (or the most they've spent for a candidate) for unelected candidate {c} are equal {s} > {c.cost}")
+                        print(f"(5) not fulfilled: voters' leftover money (or the most they've spent for a project) for not selected project {c} are equal {s} > {c.cost}")
                     return False
 
     return True
@@ -116,247 +118,171 @@ def priceable(
     extra_output: bool = False,
 ) -> BudgetAllocation | List[BudgetAllocation] | Tuple[BudgetAllocation, Numeric, List[Dict[Project, Numeric]]] | List[Tuple[BudgetAllocation, Numeric, List[Dict[Project, Numeric]]]] | None:
     """Find a priceable budget allocation for approval profile"""
-    # TODO: handle return None (no priceable budget_allocation)
     C = instance
     N = profile
-
 
     mip_model = Model("stable-priceability" if stable else "priceability", solver_name="cbc")
     mip_model.verbose = 0
 
-    # price
-    # p = mip_model.add_var(name="price")
-    # mip_model += p <= len(N)
+    # voter budget
     b = mip_model.add_var(name="budget")
-    # mip_model += b * len(N) <= instance.budget_limit  # not needed?
 
     # payment functions
-    p_vars = [{c: mip_model.add_var(name=f"p_{i.name}_{c}") for c in C} for i in N]
+    p_vars = [{c: mip_model.add_var(name=f"p_{i.name}_{c.name}") for c in C} for i in N]
 
-    # winning allocation [34]
+    # winning allocation
     x_vars = {
-        c: mip_model.add_var(var_type=BINARY, name=f"x_{c}")
+        c: mip_model.add_var(var_type=BINARY, name=f"x_{c.name}")
         for c in C
     }
-    # [35]
+
+    # (total cost of selected projects shouldn't exceed budget limit)
     mip_model += xsum(x_vars[c] * c.cost for c in C) <= instance.budget_limit
 
-    # (voter can only pay for candidates she approves of)
-    for i_idx, i in enumerate(N):
+    # (voter can only pay for projects they approve of)
+    for idx, i in enumerate(N):
         for c in C:
             if c not in i:
-                mip_model += p_vars[i_idx][c] == 0
+                mip_model += p_vars[idx][c] == 0
 
-    # (a voter can pay only for selected allocation projects) [36]
-    for i_idx, i in enumerate(N):
+    # (a voter can pay only for selected projects)
+    for idx, _ in enumerate(N):
         for c in C:
-            mip_model += 0 <= p_vars[i_idx][c]
-            mip_model += p_vars[i_idx][c] <= x_vars[c] * instance.budget_limit
-            mip_model += p_vars[i_idx][c] <= b
+            mip_model += 0 <= p_vars[idx][c]
+            mip_model += p_vars[idx][c] <= x_vars[c] * instance.budget_limit
+            mip_model += p_vars[idx][c] <= b
 
-    # (a voter will not spend more than its initial budget) [37]
-    for i_idx, i in enumerate(N):
-        mip_model += xsum(p_vars[i_idx][c] for c in C) <= b
+    # (a voter will not spend more than its initial budget)
+    for idx, _ in enumerate(N):
+        mip_model += xsum(p_vars[idx][c] for c in C) <= b
 
-    # (the sum of the payments for elected candidate equals the price) [38]
+    # (the sum of the payments for selected project equals its cost)
     for c in C:
-        # mip_model += c.cost + (x_vars[c] - 1) * b * len(N) <= xsum(p_vars[i_idx][c] for i_idx, i in enumerate(N))
-        # mip_model += xsum(p_vars[i_idx][c] for i_idx, i in enumerate(N)) <= c.cost
-        mip_model += c.cost + (x_vars[c] - 1) * instance.budget_limit <= xsum(p_vars[i_idx][c] for i_idx, i in enumerate(N))
-        mip_model += xsum(p_vars[i_idx][c] for i_idx, i in enumerate(N)) <= c.cost
-
+        mip_model += c.cost + (x_vars[c] - 1) * instance.budget_limit <= xsum(p_vars[idx][c] for idx, _ in enumerate(N))
+        mip_model += xsum(p_vars[idx][c] for idx, _ in enumerate(N)) <= c.cost
 
     if not stable:
-        # (unelected candidates' supporters have no more than p unspent budget)
-        r_vars = [mip_model.add_var(name=f"r_{i}") for i in N]
-        for i_idx, i in enumerate(N):
-            mip_model += r_vars[i_idx] == b - xsum(p_vars[i_idx][c] for c in C)
+        # (supporters of not selected project have no more money than its cost)
+        r_vars = [mip_model.add_var(name=f"r_{i.name}") for i in N]
+        for idx, _ in enumerate(N):
+            mip_model += r_vars[idx] == b - xsum(p_vars[idx][c] for c in C)
 
         for c in C:
-            mip_model += xsum(r_vars[i_idx] for i_idx, i in enumerate(N) if c in i) <= c.cost + x_vars[c] * instance.budget_limit
+            mip_model += xsum(r_vars[idx] for idx, i in enumerate(N) if c in i) <= c.cost + x_vars[c] * instance.budget_limit
 
     else:
-        # [39] [40]
-        m_vars = [mip_model.add_var(name=f"m_{i}") for i in N]
-        for i_idx, i in enumerate(N):
+        m_vars = [mip_model.add_var(name=f"m_{i.name}") for i in N]
+        for idx, _ in enumerate(N):
             for c in C:
-                mip_model += m_vars[i_idx] >= p_vars[i_idx][c]
+                mip_model += m_vars[idx] >= p_vars[idx][c]
 
-            mip_model += m_vars[i_idx] >= b - xsum(p_vars[i_idx][c] for c in C)
+            mip_model += m_vars[idx] >= b - xsum(p_vars[idx][c] for c in C)
 
-        # stability constraint [41]
+        # (stability constraint)
         for c in C:
-            mip_model += xsum(m_vars[i_idx] for i_idx, i in enumerate(N) if c in i) <= c.cost + x_vars[c] * instance.budget_limit
-
+            mip_model += xsum(m_vars[idx] for idx, i in enumerate(N) if c in i) <= c.cost + x_vars[c] * instance.budget_limit
 
     mip_model.objective = maximize(xsum(x_vars[c] * c.cost for c in C))
-    # mip_model.objective = maximize(xsum(x_vars[c] for c in C))
-    # mip_model.objective = minimize(b)   # change down below as well
-    # mip_model.emphasis = 2
     status = mip_model.optimize()
 
-    # TODO: handle status other than OPTIMAL; potential lack of solutions
     budget_allocation = sorted([c for c in C if x_vars[c].x >= 0.99])
 
-    print(f"xxxSTATUS: {status} | OPT_VAL: {mip_model.objective_value}")
-
-    if resoluteness:
-        if extra_output:
-            return (
-                budget_allocation,
-                round(b.x, ROUND_PRECISION),
-                [{c: round(p_vars[i_idx][c].x, ROUND_PRECISION) for c in C} for i_idx, i in enumerate(N)]
-            )
-        return budget_allocation
-
-    opt_value = mip_model.objective_value
-
-    previous_partial_alloc = budget_allocation
-    all_partial_allocs = [previous_partial_alloc]
-    extra_output_data = [(round(b.x, ROUND_PRECISION), [{c: round(p_vars[i_idx][c].x, ROUND_PRECISION) for c in C} for i_idx, i in enumerate(N)])]
-
-    mip_model += xsum(x_vars[c] * c.cost for c in C) == opt_value
-    # mip_model += b == opt_value
-    while True:
-        # See http://yetanothermathprogrammingconsultant.blogspot.com/2011/10/integer-cuts.html
-        # TODO: ref
-        mip_model += (
-            xsum(1 - x_vars[c] for c in previous_partial_alloc)
-            + xsum(x_vars[c] for c in C if c not in previous_partial_alloc)
-            >= 1
-        )
-        mip_model += (
-            xsum(x_vars[c] for c in previous_partial_alloc)
-            - xsum(x_vars[c] for c in C if c not in previous_partial_alloc)
-            <= len(previous_partial_alloc) - 1
-        )
-
-        opt_status = mip_model.optimize()
-        if opt_status != OptimizationStatus.OPTIMAL:
-            break
-
-        previous_partial_alloc = sorted([c for c in C if x_vars[c].x >= 0.99])
-        if previous_partial_alloc not in all_partial_allocs:
-            all_partial_allocs.append(previous_partial_alloc)
-            extra_output_data.append((round(b.x, ROUND_PRECISION), [{c: round(p_vars[i_idx][c].x, ROUND_PRECISION) for c in C} for i_idx, i in enumerate(N)]))
-
+    print(f"STATUS: {status} | OPT_VAL: {mip_model.objective_value}")
     if extra_output:
-        return [
-            (partial_alloc, price, payment_functions)
-            for partial_alloc, (price, payment_functions) in zip(all_partial_allocs, extra_output_data)
-        ]
-    return all_partial_allocs
+        return (
+            budget_allocation,
+            round(b.x, ROUND_PRECISION),
+            [{c: round(p_vars[i_idx][c].x, ROUND_PRECISION) for c in C} for i_idx, i in enumerate(N)]
+        )
+    return budget_allocation
 
 
 def find_price_system(
     instance: Instance,
     profile: AbstractApprovalProfile,
-    budget_allocation: Set[Project],
+    budget_allocation: Collection[Project],
     voter_budget: Numeric | None = None,
-    payment_functions: [Dict[Project, Numeric]] | None = None,
+    payment_functions: List[Dict[Project, Numeric]] | None = None,
     stable: bool = False,
-    *,
-    verbose: bool = False,
-) -> bool:
-    # TODO: handle return None (no priceable budget_allocation)
+) -> Tuple[OptimizationStatus, float, List[Dict[Project, float]]] | Tuple[OptimizationStatus, None, None]:
+    """Find a price system for approval profile, given budget allocation"""
     C = instance
     N = profile
-
-    if (t := total_cost(budget_allocation)) > instance.budget_limit:
-        if verbose:
-            print(f"Total cost {t} of {budget_allocation} exceeded budget limit {instance.budget_limit}")
-        return False
+    W = budget_allocation
 
     mip_model = Model("stable-priceability" if stable else "priceability", solver_name="cbc")
     mip_model.verbose = 0
 
-    # budget
+    # voter budget
     b = mip_model.add_var(name="budget")
-    # mip_model += b * len(N) <= instance.budget_limit  # not needed?
-    # mip_model += p <= len(N)
     if voter_budget is not None:
         mip_model += b == voter_budget
 
     # payment functions
-    p_vars = [{c: mip_model.add_var(name=f"p_{i.name}_{c}") for c in C} for i in N]
+    p_vars = [{c: mip_model.add_var(name=f"p_{i.name}_{c.name}") for c in C} for i in N]
     if payment_functions is not None:
-        for i_idx, i in enumerate(N):
+        for idx, _ in enumerate(N):
             for c in C:
-                mip_model += p_vars[i_idx][c] == payment_functions[i_idx][c]
+                mip_model += p_vars[idx][c] == payment_functions[idx][c]
 
-    # winning allocation [34]
-    x_vars = {
-        c: int(c in budget_allocation)
-        for c in C
-    }
+    # winning allocation
+    x_vars = {c: int(c in W) for c in C}
 
-    # (voter can only pay for candidates she approves of)
-    for i_idx, i in enumerate(N):
+    # (voter can only pay for projects they approve of)
+    for idx, i in enumerate(N):
         for c in C:
             if c not in i:
-                mip_model += p_vars[i_idx][c] == 0
+                mip_model += p_vars[idx][c] == 0
 
-    # (a voter can pay only for selected allocation projects) [36]
-    for i_idx, i in enumerate(N):
+    # (a voter can pay only for selected projects)
+    for idx, _ in enumerate(N):
         for c in C:
-            if c not in budget_allocation:
-                mip_model += p_vars[i_idx][c] == 0
+            if c not in W:
+                mip_model += p_vars[idx][c] == 0
             else:
-                mip_model += p_vars[i_idx][c] <= b
+                mip_model += p_vars[idx][c] <= b
 
-    # (a voter will not spend more than its initial budget) [37]
-    for i_idx, i in enumerate(N):
-        mip_model += xsum(p_vars[i_idx][c] for c in C) <= b
+    # (a voter will not spend more than its initial budget)
+    for idx, _ in enumerate(N):
+        mip_model += xsum(p_vars[idx][c] for c in C) <= b
 
-    # (the sum of the payments for elected candidate equals the price) [38]
+    # (the sum of the payments for selected project equals its cost)
     for c in C:
-        if c in budget_allocation:
-            mip_model += xsum(p_vars[i_idx][c] for i_idx, i in enumerate(N)) == c.cost
-
+        if c in W:
+            mip_model += xsum(p_vars[idx][c] for idx, _ in enumerate(N)) == c.cost
 
     if not stable:
-        # (unelected candidates' supporters have no more than p unspent budget)
-        r_vars = [mip_model.add_var(name=f"r_{i}") for i in N]
-        for i_idx, i in enumerate(N):
-            mip_model += r_vars[i_idx] == b - xsum(p_vars[i_idx][c] for c in C)
+        r_vars = [mip_model.add_var(name=f"r_{i.name}") for i in N]
+        for idx, _ in enumerate(N):
+            mip_model += r_vars[idx] == b - xsum(p_vars[idx][c] for c in C)
 
+        # (supporters of not selected project have no more money than its cost)
         for c in C:
-            if c not in budget_allocation:
-                mip_model += xsum(r_vars[i_idx] for i_idx, i in enumerate(N) if c in i) <= c.cost
+            if c not in W:
+                mip_model += xsum(r_vars[idx] for idx, i in enumerate(N) if c in i) <= c.cost
 
     else:
-        # [39] [40]
-        m_vars = [mip_model.add_var(name=f"m_{i}") for i in N]
-        for i_idx, i in enumerate(N):
+        m_vars = [mip_model.add_var(name=f"m_{i.name}") for i in N]
+        for idx, _ in enumerate(N):
             for c in C:
-                if c in budget_allocation:
-                    mip_model += m_vars[i_idx] >= p_vars[i_idx][c]
+                if c in W:
+                    mip_model += m_vars[idx] >= p_vars[idx][c]
 
-            mip_model += m_vars[i_idx] >= (b - xsum(p_vars[i_idx][c] for c in C))
+            mip_model += m_vars[idx] >= (b - xsum(p_vars[idx][c] for c in C))
 
-        # stability constraint [41]
+        # (stability constraint)
         for c in C:
-            if c not in budget_allocation:
-                mip_model += xsum(m_vars[i_idx] for i_idx, i in enumerate(N) if c in i) <= c.cost
+            if c not in W:
+                mip_model += xsum(m_vars[idx] for idx, i in enumerate(N) if c in i) <= c.cost
 
     mip_model.objective = maximize(xsum(x_vars[c] * c.cost for c in C))
-    # mip_model.objective = maximize(xsum(x_vars[c] for c in C))
-    # mip_model.objective = minimize(b)   # change down below as well
-    # mip_model.max_seconds = 10
     status = mip_model.optimize()
 
-    # TODO: handle status other than OPTIMAL; potential lack of solutions
-    # print(f"STATUS: {status} | OPT_VAL: {mip_model.objective_value}")
     if status == OptimizationStatus.OPTIMAL:
-        print(f"b: {b.x}")
-        print("payments:")
-        for idx, i in enumerate([{c: round(p_vars[i_idx][c].x, ROUND_PRECISION) for c in C} for i_idx, i in enumerate(N)]):
-            d = {y: z for y, z in i.items() if z > 0}
-            print(f"{idx}: {d}")
         return (
             status,
             round(b.x, ROUND_PRECISION),
-            [{c: round(p_vars[i_idx][c].x, ROUND_PRECISION) for c in C} for i_idx, i in enumerate(N)]
+            [{c: round(p_vars[idx][c].x, ROUND_PRECISION) for c in C} for idx, _ in enumerate(N)]
         )
 
-    return (status, None, None)
+    return status, None, None

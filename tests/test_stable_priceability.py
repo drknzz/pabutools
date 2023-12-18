@@ -1,14 +1,13 @@
 """
-Module testing priceability.
+Module testing stable-priceability.
 """
-import math
 from unittest import TestCase
 
 from pabutools.analysis.priceability import is_priceable, priceable
 from pabutools.election import Project, Instance, ApprovalProfile, ApprovalBallot
 
 
-class TestPriceability(TestCase):
+class TestStablePriceability(TestCase):
     @classmethod
     def setUpClass(cls):
         # Example from https://arxiv.org/pdf/1911.11747.pdf page 2
@@ -37,7 +36,7 @@ class TestPriceability(TestCase):
 
     def test_is_priceable_approval(self):
         """
-        Test checking whether a committee is priceable for approval profile.
+        Test checking whether allocation is stable-priceable for approval profile.
         """
         allocation = self.p[1:4] + self.p[7:]
         self.assertFalse(is_priceable(self.instance, self.profile, allocation, stable=True))
@@ -79,11 +78,9 @@ class TestPriceability(TestCase):
         allocation = p[6:]
         self.assertTrue(is_priceable(instance, profile, allocation, stable=True))
 
-        priceable_allocations = priceable(instance, profile, stable=True, resoluteness=False, extra_output=True)
-        for committee, p, pf in priceable_allocations:
-            self.assertTrue(is_priceable(instance, profile, committee, p, pf, stable=True))
-
-        self.assertEqual(len(priceable_allocations), 1)
+        allocation, b, pf = priceable(instance, profile, stable=True, extra_output=True)
+        self.assertTrue(is_priceable(instance, profile, allocation, b, pf, stable=True))
+        self.assertTrue(is_priceable(instance, profile, allocation, stable=True))
 
     def test_is_priceable_approval_extended2(self):
         # Example from http://www.cs.utoronto.ca/~nisarg/papers/priceability.pdf page 13
@@ -132,48 +129,14 @@ class TestPriceability(TestCase):
         allocation = p[1:6] + p[7:9] + p[11:12]
         self.assertTrue(is_priceable(instance, profile, allocation, stable=True))
 
-        priceable_allocations = priceable(instance, profile, stable=True, resoluteness=False, extra_output=True)
-        for committee, p, pf in priceable_allocations:
-            self.assertTrue(is_priceable(instance, profile, committee, p, pf, stable=True, verbose=True))
-
-        # choose c1, c2, c3 and 6 from the rest
-        self.assertEqual(len(priceable_allocations), math.comb(9, 6))
+        allocation, b, pf = priceable(instance, profile, stable=True, extra_output=True)
+        self.assertTrue(is_priceable(instance, profile, allocation, b, pf, stable=True))
+        self.assertTrue(is_priceable(instance, profile, allocation, stable=True))
 
     def test_priceable_approval(self):
         """
-        Test finding core for approval profile.
+        Test finding stable-priceable allocation for approval profile.
         """
-        priceable_allocation, p, pf = priceable(self.instance, self.profile, stable=True, extra_output=True)
-        self.assertTrue(
-            is_priceable(
-                self.instance,
-                self.profile,
-                committee=priceable_allocation,
-                candidate_price=p,
-                payment_functions=pf,
-                stable=True,
-            )
-        )
-
-        priceable_allocation = priceable(self.instance, self.profile, stable=True)
-        self.assertTrue(
-            is_priceable(
-                self.instance,
-                self.profile,
-                committee=priceable_allocation,
-                stable=True,
-            )
-        )
-
-        priceable_committees = priceable(self.instance, self.profile, stable=True, resoluteness=False, extra_output=True)
-        for priceable_allocation, p, pf in priceable_committees:
-            self.assertTrue(
-                is_priceable(
-                    self.instance,
-                    self.profile,
-                    committee=priceable_allocation,
-                    candidate_price=p,
-                    payment_functions=pf,
-                    stable=True
-                )
-            )
+        allocation, b, pf = priceable(self.instance, self.profile, stable=True, extra_output=True)
+        self.assertTrue(is_priceable(self.instance, self.profile, allocation, b, pf, stable=True))
+        self.assertTrue(is_priceable(self.instance, self.profile, allocation, stable=True))

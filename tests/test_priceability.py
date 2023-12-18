@@ -1,7 +1,6 @@
 """
 Module testing priceability.
 """
-import math
 from unittest import TestCase
 
 from pabutools.analysis.priceability import is_priceable, priceable
@@ -37,7 +36,7 @@ class TestPriceability(TestCase):
 
     def test_is_priceable_approval(self):
         """
-        Test checking whether a committee is priceable for approval profile.
+        Test checking whether allocation is priceable for approval profile.
         """
         allocation = self.p[1:4] + self.p[7:]
         self.assertFalse(is_priceable(self.instance, self.profile, allocation))
@@ -79,11 +78,9 @@ class TestPriceability(TestCase):
         allocation = p[6:]
         self.assertTrue(is_priceable(instance, profile, allocation))
 
-        priceable_allocations = priceable(instance, profile, resoluteness=False, extra_output=True)
-        for committee, p, pf in priceable_allocations:
-            self.assertTrue(is_priceable(instance, profile, committee, p, pf))
-
-        self.assertEqual(len(priceable_allocations), 1)
+        allocation, b, pf = priceable(instance, profile, extra_output=True)
+        self.assertTrue(is_priceable(instance, profile, allocation, b, pf))
+        self.assertTrue(is_priceable(instance, profile, allocation))
 
     def test_is_priceable_approval_extended2(self):
         # Example from http://www.cs.utoronto.ca/~nisarg/papers/priceability.pdf page 13
@@ -128,45 +125,14 @@ class TestPriceability(TestCase):
         allocation = p[1:6] + p[7:9] + p[11:12]
         self.assertTrue(is_priceable(instance, profile, allocation))
 
-        priceable_allocations = priceable(instance, profile, resoluteness=False, extra_output=True)
-        for committee, p, pf in priceable_allocations:
-            self.assertTrue(is_priceable(instance, profile, committee, p, pf))
-
-        # choose c1, c2, c3 and 6 from the rest
-        self.assertEqual(len(priceable_allocations), math.comb(9, 6))
+        allocation, b, pf = priceable(instance, profile, extra_output=True)
+        self.assertTrue(is_priceable(instance, profile, allocation, b, pf))
+        self.assertTrue(is_priceable(instance, profile, allocation))
 
     def test_priceable_approval(self):
         """
-        Test finding core for approval profile.
+        Test finding priceable allocation for approval profile.
         """
-        priceable_allocation, p, pf = priceable(self.instance, self.profile, extra_output=True)
-        self.assertTrue(
-            is_priceable(
-                self.instance,
-                self.profile,
-                committee=priceable_allocation,
-                candidate_price=p,
-                payment_functions=pf
-            )
-        )
-
-        priceable_allocation = priceable(self.instance, self.profile)
-        self.assertTrue(
-            is_priceable(
-                self.instance,
-                self.profile,
-                committee=priceable_allocation,
-            )
-        )
-
-        priceable_committees = priceable(self.instance, self.profile, resoluteness=False, extra_output=True)
-        for priceable_allocation, p, pf in priceable_committees:
-            self.assertTrue(
-                is_priceable(
-                    self.instance,
-                    self.profile,
-                    committee=priceable_allocation,
-                    candidate_price=p,
-                    payment_functions=pf
-                )
-            )
+        allocation, b, pf = priceable(self.instance, self.profile, extra_output=True)
+        self.assertTrue(is_priceable(self.instance, self.profile, allocation, b, pf))
+        self.assertTrue(is_priceable(self.instance, self.profile, allocation))

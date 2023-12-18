@@ -114,7 +114,6 @@ def priceable(
     profile: AbstractApprovalProfile,
     stable: bool = False,
     *,
-    resoluteness: bool = True,
     extra_output: bool = False,
 ) -> BudgetAllocation | List[BudgetAllocation] | Tuple[BudgetAllocation, Numeric, List[Dict[Project, Numeric]]] | List[Tuple[BudgetAllocation, Numeric, List[Dict[Project, Numeric]]]] | None:
     """Find a priceable budget allocation for approval profile"""

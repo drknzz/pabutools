@@ -164,7 +164,8 @@ def parse_pabulib_from_string(file_content: str, sample_size: int) -> tuple[Inst
         if legal_max_score == legal_max_total_score:
             legal_max_score = None
 
-    ballots = random.sample(ballots, sample_size)
+    if sample_size is not None:
+        ballots = random.sample(ballots, sample_size)
     profile = None
     if instance.meta["vote_type"] == "approval":
         profile = ApprovalProfile(

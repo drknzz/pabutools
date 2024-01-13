@@ -67,14 +67,14 @@ def validate_price_system(
 
     for idx, _ in enumerate(N):
         s = sum(pf[idx][c] for c in C)
-        if round_cmp(s, b, ROUND_PRECISION-2) > 0:
+        if round_cmp(s, b, ROUND_PRECISION-3) > 0:
             if verbose:
                 print(f"(2) not fulfilled: payments of voter {idx} are equal {s} > {b}")
             return False
 
     for c in W:
         s = sum(pf[idx][c] for idx, _ in enumerate(N))
-        if round_cmp(s, c.cost, ROUND_PRECISION-2) != 0:
+        if round_cmp(s, c.cost, ROUND_PRECISION-3) != 0:
             if verbose:
                 print(f"(3) not fulfilled: payments for selected project {c} are equal {s} != {c.cost}")
             return False
@@ -90,7 +90,7 @@ def validate_price_system(
         for c in C:
             if c not in W:
                 s = sum(b - sum(pf[idx][c_] for c_ in W) for idx, i in enumerate(N) if c in i)
-                if round_cmp(s, c.cost, ROUND_PRECISION-2) > 0:
+                if round_cmp(s, c.cost, ROUND_PRECISION-3) > 0:
                     if verbose:
                         print(f"(5) not fulfilled: voters' leftover money for not selected project {c} are equal {s} > {c.cost}")
                     return False
@@ -120,7 +120,7 @@ def priceable(
     C = instance
     N = profile
 
-    mip_model = Model("stable-priceability" if stable else "priceability", solver_name="cbc")
+    mip_model = Model("stable-priceability" if stable else "priceability", solver_name="gurobi")
     mip_model.verbose = 0
 
     # voter budget

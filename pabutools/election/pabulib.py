@@ -210,7 +210,7 @@ def parse_pabulib_from_string(file_content: str, sample_size: int) -> tuple[Inst
     return instance, profile
 
 
-def parse_pabulib(file_path: str, sample_size: int) -> tuple[Instance, Profile]:
+def parse_pabulib(file_path: str, sample_size: int = None) -> tuple[Instance, Profile]:
     """
     Parses a PaBuLib files and returns the corresponding instance and profile. The returned profile will be of the
     correct type depending on the metadata in the file.

@@ -103,6 +103,10 @@ def gini_coefficient(values: Iterable[Numeric]) -> Numeric:
     return frac(num_values + 1 - frac(2 * total_cum_sum, sum(values)), num_values)
 
 
+def round_cmp(a: Numeric, b: Numeric, precision: int = 6) -> int:
+    return round(a, precision) - round(b, precision)
+
+
 class DocEnum(Enum):
     """
     Enumeration with documentation of its members. Taken directly from

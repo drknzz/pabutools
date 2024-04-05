@@ -19,24 +19,6 @@ ROUND_PRECISION = 6
 SOLVER_NAME = "gurobi"
 
 
-def is_priceable(
-    instance: Instance,
-    profile: AbstractApprovalProfile,
-    budget_allocation: Collection[Project],
-    voter_budget: Numeric | None = None,
-    payment_functions: List[Dict[Project, Numeric]] | None = None,
-    stable: bool = False,
-    *,
-    verbose: bool = False,
-) -> bool:
-    """Checks whether a budget allocation is priceable"""
-    if voter_budget is None or payment_functions is None:
-        status, voter_budget, payment_functions = find_price_system(instance, profile, budget_allocation, voter_budget, payment_functions, stable=stable)
-        return status == OptimizationStatus.OPTIMAL
-
-    return validate_price_system(instance, profile, budget_allocation, voter_budget, payment_functions, stable=stable, verbose=verbose)
-
-
 def validate_price_system(
     instance: Instance,
     profile: AbstractApprovalProfile,
@@ -113,6 +95,9 @@ BudgetAllocation = List[Project]
 def priceable(
     instance: Instance,
     profile: AbstractApprovalProfile,
+    budget_allocation: Collection[Project] | None = None,
+    voter_budget: Numeric | None = None,
+    payment_functions: List[Dict[Project, Numeric]] | None = None,
     stable: bool = False,
     *,
     extra_output: bool = False,
@@ -126,13 +111,22 @@ def priceable(
 
     # voter budget
     b = mip_model.add_var(name="voter_budget")
+    if voter_budget is not None:
+        mip_model += b == voter_budget
     # mip_model += b * N.num_ballots() >= instance.budget_limit
 
     # payment functions
     p_vars = [{c: mip_model.add_var(name=f"p_{i.name}_{c.name}") for c in C} for i in N]
+    if payment_functions is not None:
+        for idx, _ in enumerate(N):
+            for c in C:
+                mip_model += p_vars[idx][c] == payment_functions[idx][c]
 
     # winning allocation
     x_vars = {c: mip_model.add_var(var_type=BINARY, name=f"x_{c.name}") for c in C}
+    if budget_allocation is not None:
+        for c in budget_allocation:
+            mip_model += x_vars[c] == 1
 
     cost_total = xsum(x_vars[c] * c.cost for c in C)
 
@@ -190,10 +184,11 @@ def priceable(
     # status = mip_model.optimize()
     print(f"STATUS: {status}")
     if status == OptimizationStatus.INFEASIBLE:
-        # TODO: temporary
         return None
 
     budget_allocation = sorted([c for c in C if x_vars[c].x >= 0.99])
+
+    assert status == OptimizationStatus.OPTIMAL
 
     if extra_output:
         return (
@@ -202,83 +197,3 @@ def priceable(
             [{c: round(p_vars[idx][c].x, ROUND_PRECISION) for c in C} for idx, _ in enumerate(N)]
         )
     return budget_allocation
-
-
-def find_price_system(
-    instance: Instance,
-    profile: AbstractApprovalProfile,
-    budget_allocation: Collection[Project],
-    voter_budget: Numeric | None = None,
-    payment_functions: List[Dict[Project, Numeric]] | None = None,
-    stable: bool = False,
-) -> Tuple[OptimizationStatus, float, List[Dict[Project, float]]] | Tuple[OptimizationStatus, None, None]:
-    """Find a price system for approval profile, given budget allocation"""
-    C = instance
-    N = profile
-    W = budget_allocation
-    NW = [c for c in C if c not in W]
-
-    mip_model = Model("stable-priceability" if stable else "priceability", solver_name=SOLVER_NAME)
-    mip_model.verbose = 0
-
-    # voter budget
-    b = mip_model.add_var(name="budget")
-    if voter_budget is not None:
-        mip_model += b == voter_budget
-
-    # payment functions
-    p_vars = [{c: mip_model.add_var(name=f"p_{i.name}_{c.name}") for c in C} for i in N]
-    if payment_functions is not None:
-        for idx, _ in enumerate(N):
-            for c in C:
-                mip_model += p_vars[idx][c] == payment_functions[idx][c]
-
-    # (C1) voter can pay only for projects they approve of
-    for idx, i in enumerate(N):
-        for c in C:
-            if c not in i:
-                mip_model += p_vars[idx][c] == 0
-
-    # (C2) voter will not spend more than their initial budget
-    for idx, _ in enumerate(N):
-        mip_model += xsum(p_vars[idx][c] for c in C) <= b
-
-    # (C3) the sum of the payments for selected project equals its cost
-    for c in W:
-        mip_model += xsum(p_vars[idx][c] for idx, _ in enumerate(N)) == c.cost
-
-    # (C4) voters do not pay for not selected projects
-    for idx, _ in enumerate(N):
-        for c in NW:
-            mip_model += p_vars[idx][c] == 0
-
-    if not stable:
-        r_vars = [mip_model.add_var(name=f"r_{i.name}") for i in N]
-        for idx, _ in enumerate(N):
-            mip_model += r_vars[idx] == b - xsum(p_vars[idx][c] for c in C)
-
-        # (C5) supporters of not selected project have no more money than its cost
-        for c in NW:
-            mip_model += xsum(r_vars[idx] for idx, i in enumerate(N) if c in i) <= c.cost
-
-    else:
-        m_vars = [mip_model.add_var(name=f"m_{i.name}") for i in N]
-        for idx, _ in enumerate(N):
-            for c in W:
-                mip_model += m_vars[idx] >= p_vars[idx][c]
-            mip_model += m_vars[idx] >= b - xsum(p_vars[idx][c] for c in C)
-
-        # (S5) stability constraint
-        for c in NW:
-            mip_model += xsum(m_vars[idx] for idx, i in enumerate(N) if c in i) <= c.cost
-
-    status = mip_model.optimize(max_seconds=600)
-    print(status)
-    if status == OptimizationStatus.OPTIMAL:
-        return (
-            status,
-            round(b.x, ROUND_PRECISION),
-            [{c: round(p_vars[idx][c].x, ROUND_PRECISION) for c in C} for idx, _ in enumerate(N)]
-        )
-
-    return status, None, None

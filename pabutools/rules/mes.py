@@ -531,8 +531,8 @@ def method_of_equal_shares_scheme(
                 return outcome
             if not instance.is_feasible(outcome):
                 return previous_outcome
-            if instance.is_exhaustive(outcome, available_projects=projects):
-                return outcome
+            # if instance.is_exhaustive(outcome, available_projects=projects):
+            #     return outcome
             initial_budget_per_voter += voter_budget_increment
             previous_outcome = outcome
         else:

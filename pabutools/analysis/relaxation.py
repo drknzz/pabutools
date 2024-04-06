@@ -27,6 +27,7 @@ def validate_price_system_relax(
     voter_budget: Numeric,
     payment_functions: List[Dict[Project, Numeric]],
     stable: bool = False,
+    exhaustive: bool = True,
     relax: Relaxation = 0,
     beta = None,
     *,
@@ -50,10 +51,11 @@ def validate_price_system_relax(
     if total > instance.budget_limit:
         errors["C0a"].append(f"total price for allocation is equal {total} > {instance.budget_limit}")
 
-    # equivalent of `instance.is_exhaustive(W)`
-    for c in NW:
-        if total + c.cost <= instance.budget_limit:
-            errors["C0b"].append(f"allocation is not exhaustive {total} + {c.cost} = {total + c.cost} <= {instance.budget_limit}")
+    if exhaustive:
+        # equivalent of `instance.is_exhaustive(W)`
+        for c in NW:
+            if total + c.cost <= instance.budget_limit:
+                errors["C0b"].append(f"allocation is not exhaustive {total} + {c.cost} = {total + c.cost} <= {instance.budget_limit}")
 
     # ApprovalBallot inherits from set[Project] so payment_functions must be a list instead of dict (because set cannot be a key as there can be multiple same ballots in the profile)
     for idx, i in enumerate(N):
@@ -123,6 +125,7 @@ def priceable_relax(
     voter_budget: Numeric | None = None,
     payment_functions: List[Dict[Project, Numeric]] | None = None,
     stable: bool = False,
+    exhaustive: bool = True,
     relax: Relaxation = 0,
     *,
     extra_output: bool = False,
@@ -160,9 +163,12 @@ def priceable_relax(
     # (C0a) the winning allocation is feasible
     mip_model += cost_total <= instance.budget_limit
 
-    # (C0b) the winning allocation is exhaustive
-    for c in C:
-        mip_model += cost_total + c.cost + x_vars[c] * instance.budget_limit >= instance.budget_limit + 1
+    if exhaustive:
+        # (C0b) the winning allocation is exhaustive
+        for c in C:
+            mip_model += cost_total + c.cost + x_vars[c] * instance.budget_limit >= instance.budget_limit + 1
+    else:
+        mip_model += b * instance.num_ballots() >= instance.budget_limit
 
     # (C1) voter can pay only for projects they approve of
     for idx, i in enumerate(N):

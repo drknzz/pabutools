@@ -195,7 +195,7 @@ def priceable(
     if extra_output:
         return (
             budget_allocation,
-            round(b.x, ROUND_PRECISION),
-            [{c: round(p_vars[idx][c].x, ROUND_PRECISION) for c in C} for idx, _ in enumerate(N)]
+            b.x,
+            [{c: p_vars[idx][c].x for c in C} for idx, _ in enumerate(N)]
         )
     return budget_allocation

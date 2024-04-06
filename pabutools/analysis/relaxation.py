@@ -259,23 +259,23 @@ def priceable_relax(
         if relax == Relaxation.NONE:
             return_beta = None
         elif relax == Relaxation.MIN_MUL or relax == Relaxation.MIN_ADD:
-            return_beta = round(beta.x, ROUND_PRECISION)
+            return_beta = beta.x
         elif relax == Relaxation.MIN_ADD_VECTOR or relax == Relaxation.MIN_ADD_VECTOR_POSITIVE:
             return_beta = collections.defaultdict(int)
             for c in C:
-                if beta_c := round(beta[c].x, ROUND_PRECISION):
-                    return_beta[c] = beta_c
+                if beta[c].x:
+                    return_beta[c] = beta[c].x
         elif relax == Relaxation.MIN_ADD_MIX:
             return_beta = collections.defaultdict(int)
-            return_beta["_global"] = round(beta_global.x, ROUND_PRECISION)
+            return_beta["_global"] = beta_global.x
             for c in C:
-                if beta_c := round(beta[c].x, ROUND_PRECISION):
-                    return_beta[c] = beta_c
+                if beta[c].x:
+                    return_beta[c] = beta[c].x
 
         return (
             budget_allocation,
-            round(b.x, ROUND_PRECISION),
-            [{c: round(p_vars[idx][c].x, ROUND_PRECISION) for c in C} for idx, _ in enumerate(N)],
+            b.x,
+            [{c: p_vars[idx][c].x for c in C} for idx, _ in enumerate(N)],
             return_beta
         )
     return budget_allocation

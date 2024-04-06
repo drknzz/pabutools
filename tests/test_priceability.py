@@ -34,16 +34,16 @@ class TestPriceability(TestCase):
         profile = ApprovalProfile(init=[v1, v2, v3, v4, v5, v6])
 
         allocation = p[1:4] + p[7:]
-        self.assertIsNone(priceable(instance, profile, allocation))
+        self.assertFalse(priceable(instance, profile, allocation).validate())
 
         allocation = p[1:9] + p[10:12] + p[13:15]
-        self.assertIsNotNone(priceable(instance, profile, allocation))
+        self.assertTrue(priceable(instance, profile, allocation).validate())
 
-        allocation, b, pf = priceable(instance, profile, extra_output=True)
-        self.assertIsNotNone(priceable(instance, profile, allocation, b, pf))
-        self.assertIsNotNone(priceable(instance, profile, allocation))
+        res = priceable(instance, profile)
+        self.assertTrue(priceable(instance, profile, res.allocation, res.voter_budget, res.payment_functions).validate())
+        self.assertTrue(priceable(instance, profile, res.allocation).validate())
 
-        self.assertTrue(validate_price_system(instance, profile, allocation, b, pf))
+        self.assertTrue(validate_price_system(instance, profile, res.allocation, res.voter_budget, res.payment_functions))
 
     def test_priceable_approval_2(self):
         # Example from https://arxiv.org/pdf/1911.11747.pdf page 15 (k = 5)
@@ -74,19 +74,19 @@ class TestPriceability(TestCase):
         profile = ApprovalProfile(init=[v1, v2, v3, v4, v5])
 
         allocation = p[1:3]
-        self.assertIsNone(priceable(instance, profile, allocation))
+        self.assertFalse(priceable(instance, profile, allocation).validate())
 
         allocation = p[1:6]
-        self.assertIsNotNone(priceable(instance, profile, allocation))
+        self.assertTrue(priceable(instance, profile, allocation).validate())
 
         allocation = p[6:]
-        self.assertIsNotNone(priceable(instance, profile, allocation))
+        self.assertTrue(priceable(instance, profile, allocation).validate())
 
-        allocation, b, pf = priceable(instance, profile, extra_output=True)
-        self.assertIsNotNone(priceable(instance, profile, allocation, b, pf))
-        self.assertIsNotNone(priceable(instance, profile, allocation))
+        res = priceable(instance, profile)
+        self.assertTrue(priceable(instance, profile, res.allocation, res.voter_budget, res.payment_functions).validate())
+        self.assertTrue(priceable(instance, profile, res.allocation).validate())
 
-        self.assertTrue(validate_price_system(instance, profile, allocation, b, pf))
+        self.assertTrue(validate_price_system(instance, profile, res.allocation, res.voter_budget, res.payment_functions))
 
     def test_priceable_approval_3(self):
         # Example from http://www.cs.utoronto.ca/~nisarg/papers/priceability.pdf page 13
@@ -123,19 +123,19 @@ class TestPriceability(TestCase):
         profile = ApprovalProfile(init=[v1, v2, v3, v4, v5, v6, v7, v8, v9])
 
         allocation = p[1:10]
-        self.assertIsNotNone(priceable(instance, profile, allocation))
+        self.assertTrue(priceable(instance, profile, allocation).validate())
 
         allocation = p[1:6] + p[7:9] + p[10:12]
-        self.assertIsNotNone(priceable(instance, profile, allocation))
+        self.assertTrue(priceable(instance, profile, allocation).validate())
 
         allocation = p[1:6] + p[7:9] + p[11:12]
-        self.assertIsNone(priceable(instance, profile, allocation))
+        self.assertFalse(priceable(instance, profile, allocation).validate())
 
-        allocation, b, pf = priceable(instance, profile, extra_output=True)
-        self.assertIsNotNone(priceable(instance, profile, allocation, b, pf))
-        self.assertIsNotNone(priceable(instance, profile, allocation))
+        res = priceable(instance, profile)
+        self.assertTrue(priceable(instance, profile, res.allocation, res.voter_budget, res.payment_functions).validate())
+        self.assertTrue(priceable(instance, profile, res.allocation).validate())
 
-        self.assertTrue(validate_price_system(instance, profile, allocation, b, pf))
+        self.assertTrue(validate_price_system(instance, profile, res.allocation, res.voter_budget, res.payment_functions))
 
     def test_priceable_approval_4(self):
         # Example from https://equalshares.net/explanation#example
@@ -163,16 +163,16 @@ class TestPriceability(TestCase):
         profile = ApprovalProfile(init=[v1, v2, v3, v4, v5, v6, v7, v8, v9, v10, v11])
 
         allocation = [p[0], p[1]]
-        self.assertIsNone(priceable(instance, profile, allocation, stable=True))
+        self.assertFalse(priceable(instance, profile, allocation, stable=True).validate())
 
         allocation = [p[0], p[2], p[4]]
-        self.assertIsNone(priceable(instance, profile, allocation, stable=True))
+        self.assertFalse(priceable(instance, profile, allocation, stable=True).validate())
 
         allocation = p[1:]
-        self.assertIsNotNone(priceable(instance, profile, allocation, stable=True))
+        self.assertTrue(priceable(instance, profile, allocation, stable=True).validate())
 
-        allocation, b, pf = priceable(instance, profile, stable=True, extra_output=True)
-        self.assertIsNotNone(priceable(instance, profile, allocation, b, pf, stable=True))
-        self.assertIsNotNone(priceable(instance, profile, allocation, stable=True))
+        res = priceable(instance, profile, stable=True)
+        self.assertTrue(priceable(instance, profile, res.allocation, res.voter_budget, res.payment_functions, stable=True).validate())
+        self.assertTrue(priceable(instance, profile, res.allocation, stable=True).validate())
 
-        self.assertTrue(validate_price_system(instance, profile, allocation, b, pf, stable=True))
+        self.assertTrue(validate_price_system(instance, profile, res.allocation, res.voter_budget, res.payment_functions, stable=True))

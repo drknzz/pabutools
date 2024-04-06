@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import collections
+import dataclasses
+import time
 from collections.abc import Collection
 from enum import Enum
-from typing import List, Tuple, Dict
+from typing import List, Tuple, Dict, Any
 
 from mip import Model, xsum, BINARY, OptimizationStatus, INF, minimize
 
+from pabutools.analysis.priceability import PriceableResult
 from pabutools.election import (
     Instance,
     AbstractApprovalProfile,
@@ -118,6 +121,21 @@ class Relaxation(Enum):
     MIN_ADD_MIX = 5
 
 
+@dataclasses.dataclass
+class RelaxedPriceableResult:
+    status: OptimizationStatus
+    relaxation: Relaxation
+    time: float
+    beta: Any = None
+    allocation: BudgetAllocation | None = None
+    voter_budget: float | None = None
+    payment_functions: List[Dict[Project, float]] | None = None
+    meta: dict = dataclasses.field(default_factory=dict)
+
+    def validate(self) -> bool:
+        return self.status in [OptimizationStatus.OPTIMAL, OptimizationStatus.FEASIBLE]
+
+
 def priceable_relax(
     instance: Instance,
     profile: AbstractApprovalProfile,
@@ -127,10 +145,9 @@ def priceable_relax(
     stable: bool = False,
     exhaustive: bool = True,
     relax: Relaxation = 0,
-    *,
-    extra_output: bool = False,
-) -> BudgetAllocation | Tuple[BudgetAllocation, float, List[Dict[Project, float]]] | None:
+) -> RelaxedPriceableResult:
     """Find a priceable budget allocation for approval profile"""
+    _start_time = time.time()
     C = instance
     N = profile
 
@@ -253,35 +270,35 @@ def priceable_relax(
     status = mip_model.optimize(max_seconds=600)
     # status = mip_model.optimize()
     print(f"STATUS: {status}")
-    if status == OptimizationStatus.INFEASIBLE:
-        return None
+    _elapsed_time = time.time() - _start_time
 
-    budget_allocation = sorted([c for c in C if x_vars[c].x >= 0.99])
+    if status == OptimizationStatus.INFEASIBLE:
+        return RelaxedPriceableResult(status=status, relaxation=relax, time=_elapsed_time)
 
     assert status in [OptimizationStatus.OPTIMAL, OptimizationStatus.FEASIBLE]
 
-    if extra_output:
+    if relax == Relaxation.NONE:
+        return_beta = None
+    elif relax == Relaxation.MIN_MUL or relax == Relaxation.MIN_ADD:
+        return_beta = beta.x
+    elif relax == Relaxation.MIN_ADD_VECTOR or relax == Relaxation.MIN_ADD_VECTOR_POSITIVE:
+        return_beta = collections.defaultdict(int)
+        for c in C:
+            if beta[c].x:
+                return_beta[c] = beta[c].x
+    elif relax == Relaxation.MIN_ADD_MIX:
+        return_beta = collections.defaultdict(int)
+        return_beta["_global"] = beta_global.x
+        for c in C:
+            if beta[c].x:
+                return_beta[c] = beta[c].x
 
-        if relax == Relaxation.NONE:
-            return_beta = None
-        elif relax == Relaxation.MIN_MUL or relax == Relaxation.MIN_ADD:
-            return_beta = beta.x
-        elif relax == Relaxation.MIN_ADD_VECTOR or relax == Relaxation.MIN_ADD_VECTOR_POSITIVE:
-            return_beta = collections.defaultdict(int)
-            for c in C:
-                if beta[c].x:
-                    return_beta[c] = beta[c].x
-        elif relax == Relaxation.MIN_ADD_MIX:
-            return_beta = collections.defaultdict(int)
-            return_beta["_global"] = beta_global.x
-            for c in C:
-                if beta[c].x:
-                    return_beta[c] = beta[c].x
-
-        return (
-            budget_allocation,
-            b.x,
-            [{c: p_vars[idx][c].x for c in C} for idx, _ in enumerate(N)],
-            return_beta
-        )
-    return budget_allocation
+    return RelaxedPriceableResult(
+        status=status,
+        relaxation=relax,
+        time=_elapsed_time,
+        allocation=list(sorted([c for c in C if x_vars[c].x >= 0.99])),
+        voter_budget=b.x,
+        payment_functions=[{c: p_vars[idx][c].x for c in C} for idx, _ in enumerate(N)],
+        beta=return_beta
+    )

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import collections
+import dataclasses
 from collections.abc import Collection
 from typing import List, Tuple, Dict
 
@@ -12,6 +13,7 @@ from pabutools.election import (
     Project,
     total_cost,
 )
+from pabutools.rules import BudgetAllocation
 from pabutools.utils import Numeric, round_cmp
 
 CHECK_ROUND_PRECISION = 2
@@ -90,7 +92,15 @@ def validate_price_system(
     return not errors
 
 
-BudgetAllocation = List[Project]
+@dataclasses.dataclass
+class PriceableResult:
+    status: OptimizationStatus
+    allocation: BudgetAllocation | None = None
+    voter_budget: float | None = None
+    payment_functions: List[Dict[Project, float]] | None = None
+
+    def validate(self) -> bool:
+        return self.status in [OptimizationStatus.OPTIMAL, OptimizationStatus.FEASIBLE]
 
 
 def priceable(
@@ -101,9 +111,7 @@ def priceable(
     payment_functions: List[Dict[Project, Numeric]] | None = None,
     stable: bool = False,
     exhaustive: bool = True,
-    *,
-    extra_output: bool = False,
-) -> BudgetAllocation | Tuple[BudgetAllocation, float, List[Dict[Project, float]]] | None:
+) -> PriceableResult:
     """Find a priceable budget allocation for approval profile"""
     C = instance
     N = profile
@@ -187,20 +195,16 @@ def priceable(
             mip_model += xsum(m_vars[idx] for idx, i in enumerate(N) if c in i) <= c.cost + x_vars[c] * instance.budget_limit
 
     print("start optimize")
-    status = mip_model.optimize(max_seconds=300)
+    status = mip_model.optimize(max_seconds=600)
     # status = mip_model.optimize()
     print(f"STATUS: {status}")
+
     if status == OptimizationStatus.INFEASIBLE:
-        return None
+        return PriceableResult(status=status)
 
-    budget_allocation = sorted([c for c in C if x_vars[c].x >= 0.99])
-
-    assert status == OptimizationStatus.OPTIMAL
-
-    if extra_output:
-        return (
-            budget_allocation,
-            b.x,
-            [{c: p_vars[idx][c].x for c in C} for idx, _ in enumerate(N)]
-        )
-    return budget_allocation
+    return PriceableResult(
+        allocation=list(sorted([c for c in C if x_vars[c].x >= 0.99])),
+        status=status,
+        voter_budget=b.x,
+        payment_functions=[{c: p_vars[idx][c].x for c in C} for idx, _ in enumerate(N)]
+    )

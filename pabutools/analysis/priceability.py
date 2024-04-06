@@ -16,7 +16,6 @@ from pabutools.utils import Numeric, round_cmp
 
 CHECK_ROUND_PRECISION = 2
 ROUND_PRECISION = 6
-SOLVER_NAME = "gurobi"
 
 
 def validate_price_system(
@@ -106,7 +105,7 @@ def priceable(
     C = instance
     N = profile
 
-    mip_model = Model("stable-priceability" if stable else "priceability", solver_name=SOLVER_NAME)
+    mip_model = Model("stable-priceability" if stable else "priceability")
     mip_model.verbose = 0
 
     # voter budget

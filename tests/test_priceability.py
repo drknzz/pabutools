@@ -45,7 +45,7 @@ class TestPriceability(TestCase):
 
         self.assertTrue(validate_price_system(instance, profile, allocation, b, pf))
 
-    def test_is_priceable_approval_extended(self):
+    def test_priceable_approval_2(self):
         # Example from https://arxiv.org/pdf/1911.11747.pdf page 15 (k = 5)
 
         # +------------------------+
@@ -88,7 +88,7 @@ class TestPriceability(TestCase):
 
         self.assertTrue(validate_price_system(instance, profile, allocation, b, pf))
 
-    def test_is_priceable_approval_extended2(self):
+    def test_priceable_approval_3(self):
         # Example from http://www.cs.utoronto.ca/~nisarg/papers/priceability.pdf page 13
 
         # +--------------+--------------+--------------+
@@ -136,3 +136,43 @@ class TestPriceability(TestCase):
         self.assertIsNotNone(priceable(instance, profile, allocation))
 
         self.assertTrue(validate_price_system(instance, profile, allocation, b, pf))
+
+    def test_priceable_approval_4(self):
+        # Example from https://equalshares.net/explanation#example
+
+        p = [
+            Project("bike path", cost=700),
+            Project("outdoor gym", cost=400),
+            Project("new park", cost=250),
+            Project("new playground", cost=200),
+            Project("library for kids", cost=100),
+        ]
+        instance = Instance(p, budget_limit=1100)
+
+        v1 = ApprovalBallot({p[0], p[1]})
+        v2 = ApprovalBallot({p[0], p[1], p[2]})
+        v3 = ApprovalBallot({p[0], p[1]})
+        v4 = ApprovalBallot({p[0], p[1], p[2]})
+        v5 = ApprovalBallot({p[0], p[1], p[2]})
+        v6 = ApprovalBallot({p[0], p[1]})
+        v7 = ApprovalBallot({p[2], p[3], p[4]})
+        v8 = ApprovalBallot({p[3]})
+        v9 = ApprovalBallot({p[3], p[4]})
+        v10 = ApprovalBallot({p[2], p[3], p[4]})
+        v11 = ApprovalBallot({p[0]})
+        profile = ApprovalProfile(init=[v1, v2, v3, v4, v5, v6, v7, v8, v9, v10, v11])
+
+        allocation = [p[0], p[1]]
+        self.assertIsNone(priceable(instance, profile, allocation, stable=True))
+
+        allocation = [p[0], p[2], p[4]]
+        self.assertIsNone(priceable(instance, profile, allocation, stable=True))
+
+        allocation = p[1:]
+        self.assertIsNotNone(priceable(instance, profile, allocation, stable=True))
+
+        allocation, b, pf = priceable(instance, profile, stable=True, extra_output=True)
+        self.assertIsNotNone(priceable(instance, profile, allocation, b, pf, stable=True))
+        self.assertIsNotNone(priceable(instance, profile, allocation, stable=True))
+
+        self.assertTrue(validate_price_system(instance, profile, allocation, b, pf, stable=True))

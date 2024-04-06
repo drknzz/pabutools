@@ -14,7 +14,7 @@ from pabutools.election import (
 )
 from pabutools.utils import Numeric, round_cmp
 
-CHECK_ROUND_PRECISION = 3
+CHECK_ROUND_PRECISION = 2
 ROUND_PRECISION = 6
 SOLVER_NAME = "gurobi"
 
@@ -83,8 +83,8 @@ def validate_price_system(
                 errors["S5"].append(f"voters' leftover money (or the most they've spent for a project) for not selected project {c} are equal {s} > {c.cost}")
 
     if verbose:
-        for error in errors:
-            print(error)
+        for condition, error in errors.items():
+            print(f"({condition}) {error}")
 
     return not errors
 
@@ -113,7 +113,6 @@ def priceable(
     b = mip_model.add_var(name="voter_budget")
     if voter_budget is not None:
         mip_model += b == voter_budget
-    # mip_model += b * N.num_ballots() >= instance.budget_limit
 
     # payment functions
     p_vars = [{c: mip_model.add_var(name=f"p_{i.name}_{c.name}") for c in C} for i in N]

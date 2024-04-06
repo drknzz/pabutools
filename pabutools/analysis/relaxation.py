@@ -91,6 +91,8 @@ def validate_price_system_relax(
                 cost = c.cost + beta
             elif relax == Relaxation.MIN_ADD_VECTOR or relax == Relaxation.MIN_ADD_VECTOR_POSITIVE:
                 cost = c.cost + beta[c]
+            elif relax == Relaxation.MIN_ADD_MIX:
+                cost = c.cost + beta["_global"] + beta[c]
 
             if round_cmp(s, cost, CHECK_ROUND_PRECISION) > 0:
                 errors["S5"].append(f"voters' leftover money (or the most they've spent for a project) for not selected project {c} are equal {s} > {cost}")
@@ -111,6 +113,7 @@ class Relaxation(Enum):
     MIN_ADD = 2
     MIN_ADD_VECTOR = 3
     MIN_ADD_VECTOR_POSITIVE = 4
+    MIN_ADD_MIX = 5
 
 
 def priceable_relax(
@@ -189,14 +192,16 @@ def priceable_relax(
         beta = mip_model.add_var(name="beta", lb=-INF)
     elif relax == Relaxation.MIN_ADD_VECTOR:
         beta = {c: mip_model.add_var(name=f"beta_{c.name}", lb=-INF) for c in C}
-
         # beta[c] is zero for unselected
         for c in C:
             mip_model += beta[c] <= (1 - x_vars[c]) * instance.budget_limit * 100
             mip_model += (x_vars[c] - 1) * instance.budget_limit * 100 <= beta[c]
-
     elif relax == Relaxation.MIN_ADD_VECTOR_POSITIVE:
         beta = {c: mip_model.add_var(name=f"beta_{c.name}") for c in C}
+    elif relax == Relaxation.MIN_ADD_MIX:
+        beta_global = mip_model.add_var(name="beta", lb=-INF)
+        beta = {c: mip_model.add_var(name=f"beta_{c.name}") for c in C}
+        mip_model += xsum(beta[c] for c in C) <= 0.025 * instance.budget_limit
 
     if not stable:
         r_vars = [mip_model.add_var(name=f"r_{i.name}") for i in N]
@@ -223,6 +228,8 @@ def priceable_relax(
                 mip_model += xsum(m_vars[idx] for idx, i in enumerate(N) if c in i) <= c.cost + beta + x_vars[c] * instance.budget_limit
             elif relax == Relaxation.MIN_ADD_VECTOR or relax == Relaxation.MIN_ADD_VECTOR_POSITIVE:
                 mip_model += xsum(m_vars[idx] for idx, i in enumerate(N) if c in i) <= c.cost + beta[c] + x_vars[c] * instance.budget_limit
+            elif relax == Relaxation.MIN_ADD_MIX:
+                mip_model += xsum(m_vars[idx] for idx, i in enumerate(N) if c in i) <= c.cost + beta_global + beta[c] + x_vars[c] * instance.budget_limit
 
     if relax == Relaxation.MIN_MUL:
         mip_model.objective = minimize(beta)
@@ -230,6 +237,8 @@ def priceable_relax(
         mip_model.objective = minimize(beta)
     elif relax == Relaxation.MIN_ADD_VECTOR or relax == Relaxation.MIN_ADD_VECTOR_POSITIVE:
         mip_model.objective = minimize(xsum(beta[c] for c in C))
+    elif relax == Relaxation.MIN_ADD_MIX:
+        mip_model.objective = minimize(beta_global)
 
     print("start optimize")
     status = mip_model.optimize(max_seconds=600)
@@ -250,6 +259,12 @@ def priceable_relax(
             return_beta = round(beta.x, ROUND_PRECISION)
         elif relax == Relaxation.MIN_ADD_VECTOR or relax == Relaxation.MIN_ADD_VECTOR_POSITIVE:
             return_beta = collections.defaultdict(int)
+            for c in C:
+                if beta_c := round(beta[c].x, ROUND_PRECISION):
+                    return_beta[c] = beta_c
+        elif relax == Relaxation.MIN_ADD_MIX:
+            return_beta = collections.defaultdict(int)
+            return_beta["_global"] = round(beta_global.x, ROUND_PRECISION)
             for c in C:
                 if beta_c := round(beta[c].x, ROUND_PRECISION):
                     return_beta[c] = beta_c

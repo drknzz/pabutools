@@ -232,7 +232,7 @@ def priceable_relax(
         mip_model.objective = minimize(xsum(beta[c] for c in C))
 
     print("start optimize")
-    status = mip_model.optimize(max_seconds=300)
+    status = mip_model.optimize(max_seconds=600)
     # status = mip_model.optimize()
     print(f"STATUS: {status}")
     if status == OptimizationStatus.INFEASIBLE:
@@ -249,7 +249,10 @@ def priceable_relax(
         elif relax == Relaxation.MIN_MUL or relax == Relaxation.MIN_ADD:
             return_beta = round(beta.x, ROUND_PRECISION)
         elif relax == Relaxation.MIN_ADD_VECTOR or relax == Relaxation.MIN_ADD_VECTOR_POSITIVE:
-            return_beta = {c: round(beta[c].x, ROUND_PRECISION) for c in C}
+            return_beta = collections.defaultdict(int)
+            for c in C:
+                if beta_c := round(beta[c].x, ROUND_PRECISION):
+                    return_beta[c] = beta_c
 
         return (
             budget_allocation,

@@ -149,8 +149,11 @@ def priceable_relax(
     # winning allocation
     x_vars = {c: mip_model.add_var(var_type=BINARY, name=f"x_{c.name}") for c in C}
     if budget_allocation is not None:
-        for c in budget_allocation:
-            mip_model += x_vars[c] == 1
+        for c in C:
+            if c in budget_allocation:
+                mip_model += x_vars[c] == 1
+            else:
+                mip_model += x_vars[c] == 0
 
     cost_total = xsum(x_vars[c] * c.cost for c in C)
 

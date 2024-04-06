@@ -1,6 +1,9 @@
 """
 Tools to work with PaBuLib.
 """
+from __future__ import annotations
+
+import random
 
 from natsort import natsorted
 from copy import deepcopy
@@ -32,7 +35,7 @@ import csv
 import os
 
 
-def parse_pabulib_from_string(file_content: str) -> tuple[Instance, Profile]:
+def parse_pabulib_from_string(file_content: str, sample_size: int | None = None) -> tuple[Instance, Profile]:
     """
     Parses a PaBuLib file given as a string and returns the corresponding instance and profile. The
     returned profile will be of the correct type depending on the metadata in the file.
@@ -163,6 +166,8 @@ def parse_pabulib_from_string(file_content: str) -> tuple[Instance, Profile]:
         if legal_max_score == legal_max_total_score:
             legal_max_score = None
 
+    if sample_size is not None:
+        ballots = random.sample(ballots, sample_size)
     profile = None
     if instance.meta["vote_type"] == "approval":
         profile = ApprovalProfile(
@@ -207,7 +212,7 @@ def parse_pabulib_from_string(file_content: str) -> tuple[Instance, Profile]:
     return instance, profile
 
 
-def parse_pabulib(file_path: str) -> tuple[Instance, Profile]:
+def parse_pabulib(file_path: str, sample_size: int | None = None) -> tuple[Instance, Profile]:
     """
     Parses a PaBuLib files and returns the corresponding instance and profile. The returned profile will be of the
     correct type depending on the metadata in the file.
@@ -224,7 +229,7 @@ def parse_pabulib(file_path: str) -> tuple[Instance, Profile]:
     """
 
     with open(file_path, "r", newline="", encoding="utf-8-sig") as csvfile:
-        instance, profile = parse_pabulib_from_string(csvfile.read())
+        instance, profile = parse_pabulib_from_string(csvfile.read(), sample_size)
 
     instance.file_path = file_path
     instance.file_name = os.path.basename(file_path)

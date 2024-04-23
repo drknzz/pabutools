@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import collections
 import dataclasses
+import json
 import time
 from collections.abc import Collection
 from enum import Enum
 from typing import List, Tuple, Dict, Any
 
-from mip import Model, xsum, BINARY, OptimizationStatus, INF, minimize
+from mip import Model, xsum, BINARY, OptimizationStatus, INF, minimize, INT_MAX
 
 from pabutools.analysis.priceability import PriceableResult
 from pabutools.election import (
@@ -76,7 +77,8 @@ def validate_price_system_relax(
             errors["C3"].append(f"payments for selected project {c} are equal {s} != {c.cost}")
 
     for c in NW:
-        if (s := sum(pf[idx][c] for idx, _ in enumerate(N))) > 0:
+        s = sum(pf[idx][c] for idx, _ in enumerate(N))
+        if round_cmp(s, 0, CHECK_ROUND_PRECISION) != 0:
             errors["C4"].append(f"payments for not selected project {c} are equal {s} != 0")
 
     if not stable:
@@ -95,9 +97,9 @@ def validate_price_system_relax(
             elif relax == Relaxation.MIN_ADD:
                 cost = c.cost + beta
             elif relax == Relaxation.MIN_ADD_VECTOR or relax == Relaxation.MIN_ADD_VECTOR_POSITIVE:
-                cost = c.cost + beta[c]
+                cost = c.cost + beta["beta"][c]
             elif relax == Relaxation.MIN_ADD_MIX:
-                cost = c.cost + beta["_global"] + beta[c]
+                cost = c.cost + beta["beta_global"] + beta["beta"][c]
 
             if round_cmp(s, cost, CHECK_ROUND_PRECISION) > 0:
                 errors["S5"].append(f"voters' leftover money (or the most they've spent for a project) for not selected project {c} are equal {s} > {cost}")
@@ -112,13 +114,13 @@ def validate_price_system_relax(
 BudgetAllocation = List[Project]
 
 
-class Relaxation(Enum):
-    NONE = 0
-    MIN_MUL = 1
-    MIN_ADD = 2
-    MIN_ADD_VECTOR = 3
-    MIN_ADD_VECTOR_POSITIVE = 4
-    MIN_ADD_MIX = 5
+class Relaxation(str, Enum):
+    NONE = "NONE"
+    MIN_MUL = "MIN_MUL"
+    MIN_ADD = "MIN_ADD"
+    MIN_ADD_VECTOR = "MIN_ADD_VECTOR"
+    MIN_ADD_VECTOR_POSITIVE = "MIN_ADD_VECTOR_POSITIVE"
+    MIN_ADD_MIX = "MIN_ADD_MIX"
 
 
 @dataclasses.dataclass
@@ -134,6 +136,23 @@ class RelaxedPriceableResult:
 
     def validate(self) -> bool:
         return self.status in [OptimizationStatus.OPTIMAL, OptimizationStatus.FEASIBLE]
+
+    def to_dict(self):
+        if not self.validate():
+            return {"status": str(self.status)}
+        res = self.__dict__
+        res["status"] = str(self.status)
+        res["allocation"] = [str(x) for x in self.allocation]
+        # res["payment_functions"] = [{str(k): v for k, v in pf.items() if v > 0} for pf in self.payment_functions]
+        del res["payment_functions"]
+        if isinstance(self.beta, dict):
+            for k, v in self.beta.items():
+                if isinstance(v, dict):
+                    res["beta"][str(k)] = {str(k_): v_ for k_, v_ in v.items() if v_ != 0}
+                else:
+                    res["beta"][str(k)] = v
+            # res["beta"] = {str(k): v for k, v in self.beta.items() if v != 0}
+        return res
 
 
 def priceable_relax(
@@ -152,7 +171,8 @@ def priceable_relax(
     N = profile
 
     mip_model = Model("stable-priceability" if stable else "priceability", solver_name=SOLVER_NAME)
-    mip_model.verbose = 0
+    # mip_model = Model("stable-priceability" if stable else "priceability", solver_name="cbc")
+    # mip_model.verbose = 0
 
     # voter budget
     b = mip_model.add_var(name="voter_budget")
@@ -183,9 +203,10 @@ def priceable_relax(
     if exhaustive:
         # (C0b) the winning allocation is exhaustive
         for c in C:
-            mip_model += cost_total + c.cost + x_vars[c] * instance.budget_limit >= instance.budget_limit + 1
-    else:
-        mip_model += b * instance.num_ballots() >= instance.budget_limit
+            mip_model += cost_total + c.cost + x_vars[c] * instance.budget_limit * 10 >= instance.budget_limit + 1
+    elif budget_allocation is None:
+        # prevent empty allocation as a result
+        mip_model += b * profile.num_ballots() >= instance.budget_limit
 
     # (C1) voter can pay only for projects they approve of
     for idx, i in enumerate(N):
@@ -202,13 +223,13 @@ def priceable_relax(
         payments_total = xsum(p_vars[idx][c] for idx, _ in enumerate(N))
 
         mip_model += payments_total <= c.cost
-        mip_model += c.cost + (x_vars[c] - 1) * instance.budget_limit <= payments_total
+        mip_model += c.cost + (x_vars[c] - 1) * INT_MAX <= payments_total
 
     # (C4) voters do not pay for not selected projects
     for idx, _ in enumerate(N):
         for c in C:
             mip_model += 0 <= p_vars[idx][c]
-            mip_model += p_vars[idx][c] <= x_vars[c] * instance.budget_limit
+            mip_model += p_vars[idx][c] <= x_vars[c] * INT_MAX
 
     if relax == Relaxation.NONE:
         beta = None
@@ -218,10 +239,17 @@ def priceable_relax(
         beta = mip_model.add_var(name="beta", lb=-INF)
     elif relax == Relaxation.MIN_ADD_VECTOR:
         beta = {c: mip_model.add_var(name=f"beta_{c.name}", lb=-INF) for c in C}
-        # beta[c] is zero for unselected
+
+
+        # beta[c] is zero for selected
         for c in C:
-            mip_model += beta[c] <= (1 - x_vars[c]) * instance.budget_limit * 100
-            mip_model += (x_vars[c] - 1) * instance.budget_limit * 100 <= beta[c]
+            mip_model += beta[c] <= (1 - x_vars[c]) * instance.budget_limit
+            mip_model += (x_vars[c] - 1) * instance.budget_limit <= beta[c]
+
+        # # beta[c] is zero for unselected
+        # for c in C:
+        #     mip_model += beta[c] <= (1 - x_vars[c]) * instance.budget_limit * 100
+        #     mip_model += (x_vars[c] - 1) * instance.budget_limit * 100 <= beta[c]
     elif relax == Relaxation.MIN_ADD_VECTOR_POSITIVE:
         beta = {c: mip_model.add_var(name=f"beta_{c.name}") for c in C}
     elif relax == Relaxation.MIN_ADD_MIX:
@@ -236,7 +264,7 @@ def priceable_relax(
 
         # (C5) supporters of not selected project have no more money than its cost
         for c in C:
-            mip_model += xsum(r_vars[idx] for idx, i in enumerate(N) if c in i) <= c.cost + x_vars[c] * instance.budget_limit
+            mip_model += xsum(r_vars[idx] for idx, i in enumerate(N) if c in i) <= c.cost + x_vars[c] * INT_MAX
     else:
         m_vars = [mip_model.add_var(name=f"m_{i.name}") for i in N]
         for idx, _ in enumerate(N):
@@ -251,12 +279,12 @@ def priceable_relax(
             elif relax == Relaxation.MIN_MUL:
                 mip_model += xsum(m_vars[idx] for idx, i in enumerate(N) if c in i) <= c.cost * beta + x_vars[c] * instance.budget_limit
             elif relax == Relaxation.MIN_ADD:
-                mip_model += xsum(m_vars[idx] for idx, i in enumerate(N) if c in i) <= c.cost + beta + x_vars[c] * instance.budget_limit
+                mip_model += xsum(m_vars[idx] for idx, i in enumerate(N) if c in i) <= c.cost + beta + x_vars[c] * INT_MAX
             elif relax == Relaxation.MIN_ADD_VECTOR or relax == Relaxation.MIN_ADD_VECTOR_POSITIVE:
-                mip_model += xsum(m_vars[idx] for idx, i in enumerate(N) if c in i) <= c.cost + beta[c] + x_vars[c] * instance.budget_limit
+                mip_model += xsum(m_vars[idx] for idx, i in enumerate(N) if c in i) <= c.cost + beta[c] + x_vars[c] * INT_MAX
             elif relax == Relaxation.MIN_ADD_MIX:
-                mip_model += xsum(m_vars[idx] for idx, i in enumerate(N) if c in i) <= c.cost + beta_global + beta[c] + x_vars[c] * instance.budget_limit
-
+                mip_model += xsum(m_vars[idx] for idx, i in enumerate(N) if c in i) <= c.cost + beta_global + beta[c] + x_vars[c] * INT_MAX
+    # mip_model += b * 10 <= instance.budget_limit
     if relax == Relaxation.MIN_MUL:
         mip_model.objective = minimize(beta)
     elif relax == Relaxation.MIN_ADD:
@@ -267,15 +295,33 @@ def priceable_relax(
         mip_model.objective = minimize(beta_global)
 
     print("start optimize")
+    # print(beta)
     status = mip_model.optimize(max_seconds=600)
     # status = mip_model.optimize()
     print(f"STATUS: {status}")
     _elapsed_time = time.time() - _start_time
 
-    if status == OptimizationStatus.INFEASIBLE:
+    # UNBOUNDED sometimes occurs when it's in fact INFEASIBLE
+    if status == OptimizationStatus.INF_OR_UNBD:
+        # https://support.gurobi.com/hc/en-us/articles/4402704428177-How-do-I-resolve-the-error-Model-is-infeasible-or-unbounded
+        #
+        mip_model.solver.set_int_param("DualReductions", 0)
+        mip_model.reset()
+        mip_model.optimize(max_seconds=600)
+        status = OptimizationStatus.INFEASIBLE if mip_model.solver.get_int_attr('status') == 3 else OptimizationStatus.UNBOUNDED
+        print(f"ACTUAL STATUS: {status}")
+
+    if status in [OptimizationStatus.INFEASIBLE, OptimizationStatus.UNBOUNDED, OptimizationStatus.INF_OR_UNBD]:
         return RelaxedPriceableResult(status=status, relaxation=relax, time=_elapsed_time)
 
     assert status in [OptimizationStatus.OPTIMAL, OptimizationStatus.FEASIBLE]
+    # if status == OptimizationStatus.UNBOUNDED:
+    # print(beta)
+    # for c in beta:
+    #     print(c, beta[c].lb, beta[c].ub, beta[c])
+    # print([beta[c].x for c in C])
+    # print(b.x)
+
 
     if relax == Relaxation.NONE:
         return_beta = None
@@ -286,19 +332,27 @@ def priceable_relax(
         for c in C:
             if beta[c].x:
                 return_beta[c] = beta[c].x
+        return_beta = {"beta": return_beta, "sum": sum(return_beta.values())}
     elif relax == Relaxation.MIN_ADD_MIX:
         return_beta = collections.defaultdict(int)
-        return_beta["_global"] = beta_global.x
+        # return_beta["_global"] = beta_global.x
         for c in C:
             if beta[c].x:
                 return_beta[c] = beta[c].x
-
+        return_beta = {"beta": return_beta, "beta_global": beta_global.x, "sum": sum(return_beta.values())}
+    payment_functions = [collections.defaultdict(float) for _ in range(len(N))]
+    for idx, _ in enumerate(N):
+        for c in C:
+            if p_vars[idx][c].x > 0:
+                payment_functions[idx][c] = p_vars[idx][c].x
+    # xd = [collections.defaultdict(int, {c: p_vars[idx][c].x for c in C if p_vars[idx][c].x != 0}) for idx, _ in enumerate(N)]
+    # print(xd)
     return RelaxedPriceableResult(
         status=status,
         relaxation=relax,
         time=_elapsed_time,
         allocation=list(sorted([c for c in C if x_vars[c].x >= 0.99])),
         voter_budget=b.x,
-        payment_functions=[{c: p_vars[idx][c].x for c in C} for idx, _ in enumerate(N)],
+        payment_functions=payment_functions,
         beta=return_beta
     )

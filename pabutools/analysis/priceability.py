@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import collections
 import dataclasses
+import json
 from collections.abc import Collection
 from typing import List, Tuple, Dict
 
@@ -102,6 +103,19 @@ class PriceableResult:
     def validate(self) -> bool:
         return self.status in [OptimizationStatus.OPTIMAL, OptimizationStatus.FEASIBLE]
 
+    def to_json(self):
+        return json.dumps(
+            self.to_dict(),
+            sort_keys=True,
+            indent=4
+        )
+
+    def to_dict(self):
+        res = self.__dict__
+        res["status"] = str(self.status)
+        res["allocation"] = [str(x) for x in self.allocation]
+        res["payment_functions"] = [{str(k): v for k, v in pf.items() if v > 0} for pf in self.payment_functions]
+        return res
 
 def priceable(
     instance: Instance,
@@ -150,7 +164,7 @@ def priceable(
         for c in C:
             mip_model += cost_total + c.cost + x_vars[c] * instance.budget_limit >= instance.budget_limit + 1
     else:
-        mip_model += b * instance.num_ballots() >= instance.budget_limit
+        mip_model += b * profile.num_ballots() >= instance.budget_limit
 
     # (C1) voter can pay only for projects they approve of
     for idx, i in enumerate(N):

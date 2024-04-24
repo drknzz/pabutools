@@ -104,6 +104,27 @@ def gini_coefficient(values: Iterable[Numeric]) -> Numeric:
 
 
 def round_cmp(a: Numeric, b: Numeric, precision: int = 6) -> int:
+    """
+    Compares two numbers after rounding them to a specified precision.
+
+    Parameters
+    ----------
+        a : Numeric
+            The first number for comparison.
+        b : Numeric
+            The second number for comparison.
+        precision : int, optional
+            The number of decimal places to which the numbers should be rounded.
+            Defaults to 6.
+
+    Returns
+    -------
+        int
+            A negative number if the rounded value of 'a' is less than the rounded value of 'b',
+            0 if they are approximately equal after rounding,
+            a positive number if the rounded value of 'a' is greater than the rounded value of 'b'.
+
+    """
     return round(a, precision) - round(b, precision)
 
 

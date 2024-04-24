@@ -1,3 +1,7 @@
+"""
+Module with tools for analysis of the priceability / stable-priceability property of budget allocation.
+"""
+
 from __future__ import annotations
 
 import collections
@@ -17,11 +21,40 @@ from pabutools.election import (
     Project,
     total_cost,
 )
-from pabutools.utils import Numeric, round_cmp
+from pabutools.utils import Numeric, round_cmp, DocEnum
 
 CHECK_ROUND_PRECISION = 2
 ROUND_PRECISION = 6
 SOLVER_NAME = "gurobi"
+
+
+class Relaxation(DocEnum):
+    """
+    Stable-priceability condition relaxation methods.
+    """
+
+    NONE = 0, "No relaxation"
+
+    MIN_MUL = 1, "The right-hand side of the condition is multiplied by a beta in [0, inf). " \
+                 "The objective function minimizes beta."
+
+    MIN_ADD = 2, "A beta in (-inf, inf) is added to the right-hand side of the condition. " \
+                 "The objective function minimizes beta."
+
+    MIN_ADD_VECTOR = 3, "A separate beta[c] in (-inf, inf) for each project c is added to the right-hand " \
+                        "side of the condition. " \
+                        "The objective function minimizes the sum of beta[c] for each project c."
+
+    MIN_ADD_VECTOR_POSITIVE = 4, "A separate beta[c] in [0, inf) for each project c is added to the right-hand " \
+                                 "side of the condition. " \
+                                 "The objective function minimizes the sum of beta[c] for each project c."
+
+    MIN_ADD_MIX = 5, "A mixture of `MIN_ADD` and `MIN_ADD_VECTOR` relaxation methods." \
+                     "A separate beta[c] in [0, inf) for each project c is added to the right-hand " \
+                     "side of the condition. " \
+                     "The sum of beta[c] for each project c is in [0, 0.025 * instance.budget_limit]. " \
+                     "Additionally, a global beta in (-inf, inf) is added to the right-hand side of the condition. " \
+                     "The objective function minimizes the global beta."
 
 
 def validate_price_system_relax(
@@ -29,15 +62,56 @@ def validate_price_system_relax(
     profile: AbstractApprovalProfile,
     budget_allocation: Collection[Project],
     voter_budget: Numeric,
-    payment_functions: List[Dict[Project, Numeric]],
+    payment_functions: Collection[Dict[Project, Numeric]],
     stable: bool = False,
     exhaustive: bool = True,
-    relax: Relaxation = 0,
+    relax: Relaxation = Relaxation.NONE,
     beta = None,
     *,
     verbose: bool = False
 ) -> bool:
-    """Given a price system, verifies whether budget_allocation is priceable"""
+    """
+    Given a price system, verifies whether `budget_allocation` is priceable / stable-priceable.
+
+    :py:func:`~pabutools.utils.round_cmp`: is used across the implementation to ensure no rounding errors.
+
+    Reference paper: https://www.cs.utoronto.ca/~nisarg/papers/priceability.pdf
+
+    Parameters
+    ----------
+        instance : :py:class:`~pabutools.election.instance.Instance`
+            The instance.
+        profile : :py:class:`~pabutools.election.profile.profile.AbstractProfile`
+            The profile.
+        budget_allocation : Collection[:py:class:`~pabutools.election.instance.Project`]
+            The selected collection of projects.
+        voter_budget : Numeric
+            Voter initial endowment.
+        payment_functions : Collection[Dict[:py:class:`~pabutools.election.instance.Project`, Numeric]]
+            Collection of payment functions for each voter.
+            A payment function indicates the amounts paid for each project by a voter.
+        stable : bool, optional
+            Verify for stable-priceable allocation.
+            Defaults to `False`.
+        exhaustive : bool, optional
+            Verify for exhaustiveness of the allocation.
+            Defaults to `True`.
+        relax : :py:class:`~pabutools.analysis.priceability.Relaxation`, optional
+            Type of stable-priceable condition relaxation.
+            Defaults to `Relaxation.NONE`.
+        beta : Any, optional
+            Relaxed beta value, tied to the type `relax`.
+            Defaults to `None`.
+        **verbose : bool, optional
+            Display additional information.
+            Defaults to `False`.
+
+    Returns
+    -------
+        bool
+            Boolean value specifying whether `budget_allocation` is priceable / stable-priceable.
+
+    """
     C = instance
     N = profile
     W = budget_allocation
@@ -61,7 +135,8 @@ def validate_price_system_relax(
             if total + c.cost <= instance.budget_limit:
                 errors["C0b"].append(f"allocation is not exhaustive {total} + {c.cost} = {total + c.cost} <= {instance.budget_limit}")
 
-    # ApprovalBallot inherits from set[Project] so payment_functions must be a list instead of dict (because set cannot be a key as there can be multiple same ballots in the profile)
+    # ApprovalBallot inherits from set[Project] so payment_functions must be list instead of a dict
+    # (because set cannot be a key as there can be multiple same ballots in the profile)
     for idx, i in enumerate(N):
         for c in C:
             if c not in i and pf[idx][c] != 0:
@@ -111,48 +186,27 @@ def validate_price_system_relax(
     return not errors
 
 
-BudgetAllocation = List[Project]
-
-
-class Relaxation(str, Enum):
-    NONE = "NONE"
-    MIN_MUL = "MIN_MUL"
-    MIN_ADD = "MIN_ADD"
-    MIN_ADD_VECTOR = "MIN_ADD_VECTOR"
-    MIN_ADD_VECTOR_POSITIVE = "MIN_ADD_VECTOR_POSITIVE"
-    MIN_ADD_MIX = "MIN_ADD_MIX"
-
-
 @dataclasses.dataclass
-class RelaxedPriceableResult:
+class PriceableResult:
     status: OptimizationStatus
     relaxation: Relaxation
     time: float
     beta: Any = None
-    allocation: BudgetAllocation | None = None
+    allocation: List[Project] | None = None
     voter_budget: float | None = None
     payment_functions: List[Dict[Project, float]] | None = None
     meta: dict = dataclasses.field(default_factory=dict)
 
     def validate(self) -> bool:
-        return self.status in [OptimizationStatus.OPTIMAL, OptimizationStatus.FEASIBLE]
+        """
+        Checks if the optimization status is `OPTIMAL` / `FEASIBLE`.
 
-    def to_dict(self):
-        if not self.validate():
-            return {"status": str(self.status)}
-        res = self.__dict__
-        res["status"] = str(self.status)
-        res["allocation"] = [str(x) for x in self.allocation]
-        # res["payment_functions"] = [{str(k): v for k, v in pf.items() if v > 0} for pf in self.payment_functions]
-        del res["payment_functions"]
-        if isinstance(self.beta, dict):
-            for k, v in self.beta.items():
-                if isinstance(v, dict):
-                    res["beta"][str(k)] = {str(k_): v_ for k_, v_ in v.items() if v_ != 0}
-                else:
-                    res["beta"][str(k)] = v
-            # res["beta"] = {str(k): v for k, v in self.beta.items() if v != 0}
-        return res
+        Returns
+        -------
+            bool
+                Validity of optimization status.
+        """
+        return self.status in [OptimizationStatus.OPTIMAL, OptimizationStatus.FEASIBLE]
 
 
 def priceable_relax(
@@ -163,16 +217,53 @@ def priceable_relax(
     payment_functions: List[Dict[Project, Numeric]] | None = None,
     stable: bool = False,
     exhaustive: bool = True,
-    relax: Relaxation = 0,
-) -> RelaxedPriceableResult:
-    """Find a priceable budget allocation for approval profile"""
+    relax: Relaxation = Relaxation.NONE,
+) -> PriceableResult:
+    """
+    Finds a priceable / stable-priceable budget allocation for approval profile
+    using Linear Programming via `mip` Python package.
+
+    Reference paper: https://www.cs.utoronto.ca/~nisarg/papers/priceability.pdf
+
+    Parameters
+    ----------
+        instance : :py:class:`~pabutools.election.instance.Instance`
+            The instance.
+        profile : :py:class:`~pabutools.election.profile.profile.AbstractProfile`
+            The profile.
+        budget_allocation : Collection[:py:class:`~pabutools.election.instance.Project`], optional
+            The selected collection of projects.
+            If specified, the allocation is hardcoded into the model.
+            Defaults to `None`.
+        voter_budget : Numeric
+            Voter initial endowment.
+            If specified, the voter budget is hardcoded into the model.
+            Defaults to `None`.
+        payment_functions : Collection[Dict[:py:class:`~pabutools.election.instance.Project`, Numeric]]
+            Collection of payment functions for each voter.
+            If specified, the payment functions are hardcoded into the model.
+            Defaults to `None`.
+        stable : bool, optional
+            Search stable-priceable allocation.
+            Defaults to `False`.
+        exhaustive : bool, optional
+            Search exhaustive allocation.
+            Defaults to `True`.
+        relax : :py:class:`~pabutools.analysis.priceability.Relaxation`, optional
+            Type of stable-priceable condition relaxation.
+            Defaults to `Relaxation.NONE`.
+
+    Returns
+    -------
+        :py:class:`~pabutools.analysis.priceability.PriceableResult`
+            Dataclass containing priceable result details.
+
+    """
     _start_time = time.time()
     C = instance
     N = profile
 
-    mip_model = Model("stable-priceability" if stable else "priceability", solver_name=SOLVER_NAME)
-    # mip_model = Model("stable-priceability" if stable else "priceability", solver_name="cbc")
-    # mip_model.verbose = 0
+    mip_model = Model("stable-priceability" if stable else "priceability")
 
     # voter budget
     b = mip_model.add_var(name="voter_budget")
@@ -239,17 +330,10 @@ def priceable_relax(
         beta = mip_model.add_var(name="beta", lb=-INF)
     elif relax == Relaxation.MIN_ADD_VECTOR:
         beta = {c: mip_model.add_var(name=f"beta_{c.name}", lb=-INF) for c in C}
-
-
         # beta[c] is zero for selected
         for c in C:
             mip_model += beta[c] <= (1 - x_vars[c]) * instance.budget_limit
             mip_model += (x_vars[c] - 1) * instance.budget_limit <= beta[c]
-
-        # # beta[c] is zero for unselected
-        # for c in C:
-        #     mip_model += beta[c] <= (1 - x_vars[c]) * instance.budget_limit * 100
-        #     mip_model += (x_vars[c] - 1) * instance.budget_limit * 100 <= beta[c]
     elif relax == Relaxation.MIN_ADD_VECTOR_POSITIVE:
         beta = {c: mip_model.add_var(name=f"beta_{c.name}") for c in C}
     elif relax == Relaxation.MIN_ADD_MIX:
@@ -275,53 +359,43 @@ def priceable_relax(
         # (S5) stability constraint
         for c in C:
             if relax == Relaxation.NONE:
-                mip_model += xsum(m_vars[idx] for idx, i in enumerate(N) if c in i) <= c.cost + x_vars[c] * instance.budget_limit
+                mip_model += xsum(m_vars[idx] for idx, i in enumerate(N) if c in i) <= c.cost + x_vars[c] * INT_MAX
             elif relax == Relaxation.MIN_MUL:
-                mip_model += xsum(m_vars[idx] for idx, i in enumerate(N) if c in i) <= c.cost * beta + x_vars[c] * instance.budget_limit
+                mip_model += xsum(m_vars[idx] for idx, i in enumerate(N) if c in i) <= c.cost * beta + x_vars[c] * INT_MAX
             elif relax == Relaxation.MIN_ADD:
                 mip_model += xsum(m_vars[idx] for idx, i in enumerate(N) if c in i) <= c.cost + beta + x_vars[c] * INT_MAX
             elif relax == Relaxation.MIN_ADD_VECTOR or relax == Relaxation.MIN_ADD_VECTOR_POSITIVE:
                 mip_model += xsum(m_vars[idx] for idx, i in enumerate(N) if c in i) <= c.cost + beta[c] + x_vars[c] * INT_MAX
             elif relax == Relaxation.MIN_ADD_MIX:
                 mip_model += xsum(m_vars[idx] for idx, i in enumerate(N) if c in i) <= c.cost + beta_global + beta[c] + x_vars[c] * INT_MAX
-    # mip_model += b * 10 <= instance.budget_limit
+
+    # set the objective
     if relax == Relaxation.MIN_MUL:
         mip_model.objective = minimize(beta)
     elif relax == Relaxation.MIN_ADD:
         mip_model.objective = minimize(beta)
-    elif relax == Relaxation.MIN_ADD_VECTOR or relax == Relaxation.MIN_ADD_VECTOR_POSITIVE:
+    elif relax in [Relaxation.MIN_ADD_VECTOR, Relaxation.MIN_ADD_VECTOR_POSITIVE]:
         mip_model.objective = minimize(xsum(beta[c] for c in C))
     elif relax == Relaxation.MIN_ADD_MIX:
         mip_model.objective = minimize(beta_global)
 
-    print("start optimize")
-    # print(beta)
     status = mip_model.optimize(max_seconds=600)
-    # status = mip_model.optimize()
-    print(f"STATUS: {status}")
     _elapsed_time = time.time() - _start_time
 
-    # UNBOUNDED sometimes occurs when it's in fact INFEASIBLE
     if status == OptimizationStatus.INF_OR_UNBD:
         # https://support.gurobi.com/hc/en-us/articles/4402704428177-How-do-I-resolve-the-error-Model-is-infeasible-or-unbounded
-        #
+        # https://github.com/coin-or/python-mip/blob/1.15.0/mip/gurobi.py#L777
+        # https://github.com/coin-or/python-mip/blob/1.16-pre/mip/gurobi.py#L778
+
         mip_model.solver.set_int_param("DualReductions", 0)
         mip_model.reset()
         mip_model.optimize(max_seconds=600)
         status = OptimizationStatus.INFEASIBLE if mip_model.solver.get_int_attr('status') == 3 else OptimizationStatus.UNBOUNDED
-        print(f"ACTUAL STATUS: {status}")
 
     if status in [OptimizationStatus.INFEASIBLE, OptimizationStatus.UNBOUNDED, OptimizationStatus.INF_OR_UNBD]:
-        return RelaxedPriceableResult(status=status, relaxation=relax, time=_elapsed_time)
+        return PriceableResult(status=status, relaxation=relax, time=_elapsed_time)
 
     assert status in [OptimizationStatus.OPTIMAL, OptimizationStatus.FEASIBLE]
-    # if status == OptimizationStatus.UNBOUNDED:
-    # print(beta)
-    # for c in beta:
-    #     print(c, beta[c].lb, beta[c].ub, beta[c])
-    # print([beta[c].x for c in C])
-    # print(b.x)
-
 
     if relax == Relaxation.NONE:
         return_beta = None
@@ -335,19 +409,18 @@ def priceable_relax(
         return_beta = {"beta": return_beta, "sum": sum(return_beta.values())}
     elif relax == Relaxation.MIN_ADD_MIX:
         return_beta = collections.defaultdict(int)
-        # return_beta["_global"] = beta_global.x
         for c in C:
             if beta[c].x:
                 return_beta[c] = beta[c].x
         return_beta = {"beta": return_beta, "beta_global": beta_global.x, "sum": sum(return_beta.values())}
+
     payment_functions = [collections.defaultdict(float) for _ in range(len(N))]
     for idx, _ in enumerate(N):
         for c in C:
             if p_vars[idx][c].x > 0:
                 payment_functions[idx][c] = p_vars[idx][c].x
-    # xd = [collections.defaultdict(int, {c: p_vars[idx][c].x for c in C if p_vars[idx][c].x != 0}) for idx, _ in enumerate(N)]
-    # print(xd)
-    return RelaxedPriceableResult(
+
+    return PriceableResult(
         status=status,
         relaxation=relax,
         time=_elapsed_time,

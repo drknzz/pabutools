@@ -48,6 +48,24 @@ class TestPriceability(TestCase):
 
         self.assertTrue(validate_price_system(instance, profile, res.allocation, res.voter_budget, res.payment_functions))
 
+        # res = priceable(instance, profile, verbose=True)
+        # print()
+        # print(f"--- STATUS: {res.status}")
+        # print(f"--- TIME: {res.time_elapsed}")
+        # print(f"--- ALLOCATION: {res.allocation}")
+        # print(f"--- NOT CHOSEN: {[c for c in instance if c not in res.allocation]}")
+        #
+        # print(f"--- VOTER BUDGET: {res.voter_budget}")
+        # # print(f"--- PAYMENT FUNCTIONS: {res.payment_functions}")
+        # for i in range(len(res.payment_functions)):
+        #     print(f"{i+1}: {res.payment_functions[i]}")
+        # self.assertTrue(validate_price_system(instance, profile, res.allocation, res.voter_budget, res.payment_functions, verbose=True))
+        # self.assertTrue(priceable(instance, profile, res.allocation, res.voter_budget, res.payment_functions).validate())
+        # # self.assertTrue(priceable(instance, profile, res.allocation).validate())
+        # #
+        # # self.assertTrue(validate_price_system(instance, profile, res.allocation, res.voter_budget, res.payment_functions))
+
+
     def test_priceable_approval_2(self):
         # Example from https://arxiv.org/pdf/1911.11747.pdf page 15 (k = 5)
 

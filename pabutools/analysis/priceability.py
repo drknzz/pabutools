@@ -5,8 +5,10 @@ Module with tools for analysis of the priceability / stable-priceability propert
 from __future__ import annotations
 
 import collections
+import os
 import time
 from collections.abc import Collection
+from pathlib import Path
 
 from mip import Model, xsum, BINARY, OptimizationStatus
 
@@ -279,25 +281,63 @@ def priceable(
     INF = instance.budget_limit * 10
 
     mip_model = Model("stable-priceability" if stable else "priceability")
+    model_cache_path = f"model_cache/{Path(instance.file_name).stem}.mps"
+    if os.path.exists(model_cache_path):
+        print(f"- READING FROM CACHE {model_cache_path}")
+        mip_model.read(model_cache_path)
+        b = mip_model.var_by_name("voter_budget")
+        p_vars = [{c: mip_model.var_by_name(name=f"p_{idx}_{c.name}") for c in C} for idx, i in enumerate(N)]
+        x_vars = {c: mip_model.var_by_name(name=f"x_{c.name}") for c in C}
+        rm_vars = [mip_model.var_by_name(name=f"rm_{idx}") for idx, i in enumerate(N)]
+    else:
+        b = mip_model.add_var(name="voter_budget")
+        p_vars = [{c: mip_model.add_var(name=f"p_{idx}_{c.name}") for c in C} for idx, i in enumerate(N)]
+        x_vars = {c: mip_model.add_var(var_type=BINARY, name=f"x_{c.name}") for c in C}
+
+        # (C1) voter can pay only for projects they approve of
+        for idx, i in enumerate(N):
+            for c in C:
+                if c not in i:
+                    mip_model += p_vars[idx][c] == 0
+
+        # (C2) voter will not spend more than their initial budget
+        for idx, _ in enumerate(N):
+            mip_model += xsum(p_vars[idx][c] for c in C) <= b
+
+        # (C3) the sum of the payments for selected project equals its cost
+        for c in C:
+            payments_total = xsum(p_vars[idx][c] for idx, _ in enumerate(N))
+
+            mip_model += payments_total <= c.cost
+            mip_model += c.cost + (x_vars[c] - 1) * INF <= payments_total
+
+        # (C4) voters do not pay for not selected projects
+        for idx, _ in enumerate(N):
+            for c in C:
+                mip_model += 0 <= p_vars[idx][c]
+                mip_model += p_vars[idx][c] <= x_vars[c] * INF
+
+        rm_vars = [mip_model.add_var(name=f"rm_{idx}") for idx, i in enumerate(N)]
+
+        print(f"- CREATING CACHE {model_cache_path}")
+        mip_model.write(model_cache_path)
+
     mip_model.verbose = True
     # mip_model.integer_tol = 1e-6
     # mip_model.solver.set_int_param("SolutionLimit", 1)
     # mip_model.emphasis = 1
 
     # voter budget
-    b = mip_model.add_var(name="voter_budget")
     if voter_budget is not None:
         mip_model += b == voter_budget
 
     # payment functions
-    p_vars = [{c: mip_model.add_var(name=f"p_{i.name}_{c.name}") for c in C} for i in N]
     if payment_functions is not None:
         for idx, _ in enumerate(N):
             for c in C:
                 mip_model += p_vars[idx][c] == payment_functions[idx][c]
 
     # winning allocation
-    x_vars = {c: mip_model.add_var(var_type=BINARY, name=f"x_{c.name}") for c in C}
     if budget_allocation is not None:
         for c in C:
             if c in budget_allocation:
@@ -320,59 +360,51 @@ def priceable(
         # prevent empty allocation as a result
         mip_model += b * profile.num_ballots() >= instance.budget_limit
 
-    # (C1) voter can pay only for projects they approve of
-    for idx, i in enumerate(N):
-        for c in C:
-            if c not in i:
-                mip_model += p_vars[idx][c] == 0
-
-    # (C2) voter will not spend more than their initial budget
-    for idx, _ in enumerate(N):
-        mip_model += xsum(p_vars[idx][c] for c in C) <= b
-
-    # (C3) the sum of the payments for selected project equals its cost
-    for c in C:
-        payments_total = xsum(p_vars[idx][c] for idx, _ in enumerate(N))
-
-        mip_model += payments_total <= c.cost
-        mip_model += c.cost + (x_vars[c] - 1) * INF <= payments_total
-
-    # (C4) voters do not pay for not selected projects
-    for idx, _ in enumerate(N):
-        for c in C:
-            mip_model += 0 <= p_vars[idx][c]
-            mip_model += p_vars[idx][c] <= x_vars[c] * INF
-
     if not stable:
-        r_vars = [mip_model.add_var(name=f"r_{i.name}") for i in N]
         for idx, _ in enumerate(N):
-            mip_model += r_vars[idx] == b - xsum(p_vars[idx][c] for c in C)
+            mip_model += rm_vars[idx] == b - xsum(p_vars[idx][c] for c in C)
 
         # (C5) supporters of not selected project have no more money than its cost
         for c in C:
             mip_model += (
-                xsum(r_vars[idx] for idx, i in enumerate(N) if c in i)
-                <= c.cost + x_vars[c] * INF
+                    xsum(rm_vars[idx] for idx, i in enumerate(N) if c in i)
+                    <= c.cost + x_vars[c] * INF
             )
     else:
-        m_vars = [mip_model.add_var(name=f"m_{i.name}") for i in N]
         for idx, _ in enumerate(N):
             for c in C:
-                mip_model += m_vars[idx] >= p_vars[idx][c]
-            mip_model += m_vars[idx] >= b - xsum(p_vars[idx][c] for c in C)
+                mip_model += rm_vars[idx] >= p_vars[idx][c]
+            mip_model += rm_vars[idx] >= b - xsum(p_vars[idx][c] for c in C)
 
         # (S5) stability constraint
         for c in C:
             mip_model += (
-                xsum(m_vars[idx] for idx, i in enumerate(N) if c in i)
-                <= c.cost + x_vars[c] * INF
+                    xsum(rm_vars[idx] for idx, i in enumerate(N) if c in i)
+                    <= c.cost + x_vars[c] * INF
             )
+
 
     print(f"--- START OPTIMIZE")
     # status = mip_model.optimize(max_seconds=max_seconds)
 
-    # mip_model.solver.set_int_param("MIPFocus", 1)
-    # mip_model.solver.set_int_param("Presolve", 2)
+    static_mes = [307, 1460, 1706, 442, 766, 1513, 1722, 1480, 737, 870, 1367, 494, 21, 955, 452, 141, 1175, 1591, 444, 257, 945, 1876, 72, 443, 1874, 438, 1107, 1229, 1612, 1156, 561, 73, 1160, 1291, 464, 761, 715, 358, 871, 499, 501]
+    mes_result = [project for project in instance if int(project.name) in static_mes]
+    for c in C:
+        if c in mes_result:
+            print("xx", c)
+            mip_model.solver.set_dbl_attr_element("VarHintVal", x_vars[c].idx, 1.0)
+            # mip_model.solver.set_dbl_attr_element("Start", x_vars[c].idx, 1.0)
+        else:
+            mip_model.solver.set_dbl_attr_element("VarHintVal", x_vars[c].idx, 0.0)
+            # mip_model.solver.set_dbl_attr_element("Start", x_vars[c].idx, 0.0)
+    # mip_model.solver.set_int_param("StartNodeLimit", 2000000000)
+
+
+    # mip_model.solver.set_dbl_param("NoRelHeurTime", 1500.0)
+    # mip_model.solver.set_dbl_param("Heuristics", 1)
+    mip_model.solver.set_int_param("MIPFocus", 1)
+    mip_model.solver.set_int_param("Presolve", 2)
+    # mip_model.solver.set_int_param("IntegralityFocus", 1)
     status = mip_model.optimize(max_solutions=1)
     # status = mip_model.optimize()
     print(f"--- STATUS: {status}")
@@ -417,3 +449,123 @@ def priceable(
         voter_budget=b.x,
         payment_functions=payment_functions,
     )
+
+
+#
+# import gurobipy as gp
+#
+#
+# def priceable_gurobi(
+#     instance: Instance,
+#     profile: AbstractApprovalProfile,
+#     budget_allocation: Collection[Project] | None = None,
+#     voter_budget: Numeric | None = None,
+#     payment_functions: list[dict[Project, Numeric]] | None = None,
+#     stable: bool = False,
+#     exhaustive: bool = True,
+#     *,
+#     max_seconds: int = 600,
+#     verbose: bool = False,
+# ) -> PriceableResult:
+#     _start_time = time.time()
+#     C = instance
+#     N = profile
+#     INF = instance.budget_limit * 10
+#
+#     gp_model = gp.Model()
+#
+#     b = gp_model.addVar(name="voter_budget")
+#     b.setAttr("VarHintVal", 1)
+#     p_vars = [{c: mip_model.add_var(name=f"p_{idx}_{c.name}") for c in C} for idx, i in enumerate(N)]
+#     x_vars = {c: mip_model.add_var(var_type=BINARY, name=f"x_{c.name}") for c in C}
+#
+#     # (C1) voter can pay only for projects they approve of
+#     for idx, i in enumerate(N):
+#         for c in C:
+#             if c not in i:
+#                 mip_model += p_vars[idx][c] == 0
+#
+#     # (C2) voter will not spend more than their initial budget
+#     for idx, _ in enumerate(N):
+#         mip_model += xsum(p_vars[idx][c] for c in C) <= b
+#
+#     # (C3) the sum of the payments for selected project equals its cost
+#     for c in C:
+#         payments_total = xsum(p_vars[idx][c] for idx, _ in enumerate(N))
+#
+#         mip_model += payments_total <= c.cost
+#         mip_model += c.cost + (x_vars[c] - 1) * INF <= payments_total
+#
+#     # (C4) voters do not pay for not selected projects
+#     for idx, _ in enumerate(N):
+#         for c in C:
+#             mip_model += 0 <= p_vars[idx][c]
+#             mip_model += p_vars[idx][c] <= x_vars[c] * INF
+#
+#     rm_vars = [mip_model.add_var(name=f"rm_{idx}") for idx, i in enumerate(N)]
+#
+#     # mip_model.verbose = True
+#
+#     # winning allocation
+#     if budget_allocation is not None:
+#         for c in C:
+#             if c in budget_allocation:
+#                 mip_model += x_vars[c] == 1
+#             else:
+#                 mip_model += x_vars[c] == 0
+#
+#     cost_total = xsum(x_vars[c] * c.cost for c in C)
+#
+#     # (C0a) the winning allocation is feasible
+#     mip_model += cost_total <= instance.budget_limit
+#
+#     if exhaustive:
+#         # (C0b) the winning allocation is exhaustive
+#         for c in C:
+#             mip_model += (
+#                 cost_total + c.cost + x_vars[c] * INF >= instance.budget_limit + 1
+#             )
+#     elif budget_allocation is None:
+#         # prevent empty allocation as a result
+#         mip_model += b * profile.num_ballots() >= instance.budget_limit
+#
+#     if not stable:
+#         for idx, _ in enumerate(N):
+#             mip_model += rm_vars[idx] == b - xsum(p_vars[idx][c] for c in C)
+#
+#         # (C5) supporters of not selected project have no more money than its cost
+#         for c in C:
+#             mip_model += (
+#                     xsum(rm_vars[idx] for idx, i in enumerate(N) if c in i)
+#                     <= c.cost + x_vars[c] * INF
+#             )
+#     else:
+#         for idx, _ in enumerate(N):
+#             for c in C:
+#                 mip_model += rm_vars[idx] >= p_vars[idx][c]
+#             mip_model += rm_vars[idx] >= b - xsum(p_vars[idx][c] for c in C)
+#
+#         # (S5) stability constraint
+#         for c in C:
+#             mip_model += (
+#                     xsum(rm_vars[idx] for idx, i in enumerate(N) if c in i)
+#                     <= c.cost + x_vars[c] * INF
+#             )
+#
+#
+#     print(f"--- START OPTIMIZE")
+#     # status = mip_model.optimize(max_seconds=max_seconds)
+#
+#     static_mes = [307, 1460, 1706, 442, 766, 1513, 1722, 1480, 737, 870, 1367, 494, 21, 955, 452, 141, 1175, 1591, 444, 257, 945, 1876, 72, 443, 1874, 438, 1107, 1229, 1612, 1156, 561, 73, 1160, 1291, 464, 761, 715, 358, 871, 499, 501]
+#     mes_result = [project for project in instance if int(project.name) in static_mes]
+#     # for c in C:
+#     #     if c in mes_result:
+#     #         x_vars[c].setAttr("VarHintVal", 1)
+#     #     else:
+#     #         x_vars[c].setAttr("VarHintVal", 0)
+#
+#     gp_model.setParam("MIPFocus", 1)
+#     # mip_model.solver.set_int_param("Presolve", 2)
+#     # status = mip_model.optimize(max_solutions=1)
+#     status = gp_model.optimize()
+#     print(f"--- STATUS: {status}")

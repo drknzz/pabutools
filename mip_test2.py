@@ -1,10 +1,12 @@
 import json
 import os
+import sys
 from pathlib import Path
 
 from mip import OptimizationStatus
 
 from pabutools.analysis import priceable, validate_price_system
+# from pabutools.analysis.priceability import priceable_gurobi
 from pabutools.election import parse_pabulib, Cost_Sat, Cardinality_Sat
 from pabutools.rules import method_of_equal_shares, greedy_utilitarian_welfare, completion_by_rule_combination
 
@@ -89,17 +91,17 @@ def green(instance, profile):
             assert verified
         return result
 
-    p_exh = priceable_ex(False, True)
-    print(p_exh.allocation)
-
-    p_no_exh = priceable_ex(False, False) if not p_exh.allocation else p_exh
-    print(p_no_exh.allocation)
-
     sp_exh = priceable_ex(True, True)
     print(sp_exh.allocation)
 
     sp_no_exh = priceable_ex(True, False) if not sp_exh.allocation else sp_exh
     print(sp_no_exh.allocation)
+
+    p_exh = priceable_ex(False, True) if not sp_exh.allocation else sp_exh
+    print(p_exh.allocation)
+
+    p_no_exh = priceable_ex(False, False) if not p_exh.allocation else p_exh
+    print(p_no_exh.allocation)
 
 
     # print(sp_no_exh.allocation)
@@ -215,17 +217,27 @@ if __name__ == "__main__":
     # file_path = "analysis/poland_wieliczka_2023.pb"
     # file_path = "tests/PaBuLib/All/poland_gdansk_2020_.pb"
     # file_path = "tests/PaBuLib/All/poland_gdynia_2020_.pb"
-    file_path = "tests/PaBuLib/All/poland_katowice_2021_.pb"
+    # file_path = "tests/PaBuLib/All/poland_katowice_2021_.pb"
     # file_path = "tests/PaBuLib/All/poland_warszawa_2021_.pb"
+
     # file_path = "tests/PaBuLib/All/poland_lodz_2020_.pb"
     # file_path = "tests/PaBuLib/All/poland_krakow_2018_.pb"
     # file_path = "tests/PaBuLib/All/poland_warszawa_2020_ursus.pb"
 
 
-    # file_path = "tests/PaBuLib/All/poland_warszawa_2023_wola.pb" # :(
+    file_path = "tests/PaBuLib/All/poland_warszawa_2023_wola.pb" # :( - 4115s
     instance, profile = parse_pabulib(file_path)
 
-    model_cache_path = f"model_cache/{Path(file_path).stem}.lp"
+    # static_mes = [307, 1460, 1706, 442, 766, 1513, 1722, 1480, 737, 870, 1367, 494, 21, 955, 452, 141, 1175, 1591, 444, 257, 945, 1876, 72, 443, 1874, 438, 1107, 1229, 1612, 1156, 561, 73, 1160, 1291, 464, 761, 715, 358, 871, 499, 501]
+    # mes_result = [project for project in instance if int(project.name) in static_mes]
+    # print(instance.is_feasible(mes_result))
+    # print(instance.is_exhaustive(mes_result))
+    # xd = priceable(instance, profile, mes_result, exhaustive=True, stable=True)
+    # print(xd.allocation)
+    # print(validate_price_system(instance, profile, exhaustive=True, stable=True, budget_allocation=xd.allocation, payment_functions=xd.payment_functions, voter_budget=xd.voter_budget))
+    # sys.exit()
+
+    model_cache_path = f"model_cache/{Path(file_path).stem}.mps"
     if os.path.exists(model_cache_path):
         os.remove(model_cache_path)
         print(f"{model_cache_path} removed successfully")

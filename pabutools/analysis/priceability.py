@@ -279,8 +279,10 @@ def priceable(
     INF = instance.budget_limit * 10
 
     mip_model = Model("stable-priceability" if stable else "priceability")
-    mip_model.verbose = verbose
-    mip_model.integer_tol = 1e-8
+    mip_model.verbose = True
+    # mip_model.integer_tol = 1e-6
+    # mip_model.solver.set_int_param("SolutionLimit", 1)
+    # mip_model.emphasis = 1
 
     # voter budget
     b = mip_model.add_var(name="voter_budget")
@@ -366,7 +368,14 @@ def priceable(
                 <= c.cost + x_vars[c] * INF
             )
 
-    status = mip_model.optimize(max_seconds=max_seconds)
+    print(f"--- START OPTIMIZE")
+    # status = mip_model.optimize(max_seconds=max_seconds)
+
+    # mip_model.solver.set_int_param("MIPFocus", 1)
+    # mip_model.solver.set_int_param("Presolve", 2)
+    status = mip_model.optimize(max_solutions=1)
+    # status = mip_model.optimize()
+    print(f"--- STATUS: {status}")
 
     if status == OptimizationStatus.INF_OR_UNBD:
         # https://support.gurobi.com/hc/en-us/articles/4402704428177-How-do-I-resolve-the-error-Model-is-infeasible-or-unbounded
@@ -375,12 +384,14 @@ def priceable(
         #
         mip_model.solver.set_int_param("DualReductions", 0)
         mip_model.reset()
-        mip_model.optimize(max_seconds=max_seconds)
+        # mip_model.optimize(max_seconds=max_seconds)
+        mip_model.optimize()
         status = (
             OptimizationStatus.INFEASIBLE
             if mip_model.solver.get_int_attr("status") == 3
             else OptimizationStatus.UNBOUNDED
         )
+        print(f"--- ACTUAL STATUS: {status}")
 
     _elapsed_time = time.time() - _start_time
 
@@ -390,9 +401,15 @@ def priceable(
     payment_functions = [collections.defaultdict(float) for _ in N]
     for idx, _ in enumerate(N):
         for c in C:
-            if p_vars[idx][c].x > 1e-8:
+            if p_vars[idx][c].x > 1e-6:
                 payment_functions[idx][c] = p_vars[idx][c].x
+    # print([r_vars[idx].x for idx, i in enumerate(N)])
+    #
+    # for c in C:
+    #     print(c, sum(r_vars[idx].x for idx, i in enumerate(N) if c in i), c.cost, x_vars[c].x)
 
+
+    # mip_model.check_optimization_results()
     return PriceableResult(
         status=status,
         time_elapsed=_elapsed_time,
